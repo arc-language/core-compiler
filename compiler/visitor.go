@@ -62,7 +62,7 @@ func (v *IRVisitor) VisitExternFunctionDecl(ctx *parser.ExternFunctionDeclContex
 	name := ctx.IDENTIFIER().GetText()
 	
 	// Get return type
-	retType := types.Void
+	var retType types.Type = types.Void  // Changed from retType := types.Void
 	if ctx.Type_() != nil {
 		retType = v.resolveType(ctx.Type_())
 	}
