@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
 	"github.com/arc-language/core-builder/types"
 	"github.com/arc-language/core-parser"
@@ -20,6 +21,84 @@ func NewIRVisitor(ctx *Context) *IRVisitor {
 	return &IRVisitor{
 		BaseArcParserVisitor: &parser.BaseArcParserVisitor{},
 		ctx:                  ctx,
+	}
+}
+
+// Visit overrides the base Visit to add explicit dispatching
+func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
+	if tree == nil {
+		return nil
+	}
+
+	// Explicitly dispatch to the correct visitor method based on context type
+	switch ctx := tree.(type) {
+	case *parser.CompilationUnitContext:
+		return v.VisitCompilationUnit(ctx)
+	case *parser.TopLevelDeclContext:
+		return v.VisitTopLevelDecl(ctx)
+	case *parser.NamespaceDeclContext:
+		return v.VisitNamespaceDecl(ctx)
+	case *parser.ImportDeclContext:
+		return v.VisitImportDecl(ctx)
+	case *parser.ExternDeclContext:
+		return v.VisitExternDecl(ctx)
+	case *parser.ExternFunctionDeclContext:
+		return v.VisitExternFunctionDecl(ctx)
+	case *parser.FunctionDeclContext:
+		return v.VisitFunctionDecl(ctx)
+	case *parser.StructDeclContext:
+		return v.VisitStructDecl(ctx)
+	case *parser.BlockContext:
+		return v.VisitBlock(ctx)
+	case *parser.StatementContext:
+		return v.VisitStatement(ctx)
+	case *parser.VariableDeclContext:
+		return v.VisitVariableDecl(ctx)
+	case *parser.ConstDeclContext:
+		return v.VisitConstDecl(ctx)
+	case *parser.AssignmentStmtContext:
+		return v.VisitAssignmentStmt(ctx)
+	case *parser.ReturnStmtContext:
+		return v.VisitReturnStmt(ctx)
+	case *parser.IfStmtContext:
+		return v.VisitIfStmt(ctx)
+	case *parser.DeferStmtContext:
+		return v.VisitDeferStmt(ctx)
+	case *parser.ExpressionStmtContext:
+		return v.VisitExpressionStmt(ctx)
+	case *parser.ExpressionContext:
+		return v.VisitExpression(ctx)
+	case *parser.LogicalOrExpressionContext:
+		return v.VisitLogicalOrExpression(ctx)
+	case *parser.LogicalAndExpressionContext:
+		return v.VisitLogicalAndExpression(ctx)
+	case *parser.EqualityExpressionContext:
+		return v.VisitEqualityExpression(ctx)
+	case *parser.RelationalExpressionContext:
+		return v.VisitRelationalExpression(ctx)
+	case *parser.AdditiveExpressionContext:
+		return v.VisitAdditiveExpression(ctx)
+	case *parser.MultiplicativeExpressionContext:
+		return v.VisitMultiplicativeExpression(ctx)
+	case *parser.UnaryExpressionContext:
+		return v.VisitUnaryExpression(ctx)
+	case *parser.PostfixExpressionContext:
+		return v.VisitPostfixExpression(ctx)
+	case *parser.PrimaryExpressionContext:
+		return v.VisitPrimaryExpression(ctx)
+	case *parser.LiteralContext:
+		return v.VisitLiteral(ctx)
+	case *parser.CastExpressionContext:
+		return v.VisitCastExpression(ctx)
+	case *parser.AllocaExpressionContext:
+		return v.VisitAllocaExpression(ctx)
+	case *parser.ArgumentListContext:
+		return v.VisitArgumentList(ctx)
+	case *parser.LeftHandSideContext:
+		return v.VisitLeftHandSide(ctx)
+	default:
+		// For unhandled types, try the default visitor behavior
+		return v.BaseArcParserVisitor.Visit(tree)
 	}
 }
 
@@ -46,6 +125,39 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 	return nil
 }
 
+// VisitTopLevelDecl handles the intermediate TopLevelDecl node
+func (v *IRVisitor) VisitTopLevelDecl(ctx *parser.TopLevelDeclContext) interface{} {
+	// Dispatch to the actual declaration type
+	if ctx.FunctionDecl() != nil {
+		return v.Visit(ctx.FunctionDecl())
+	}
+	if ctx.StructDecl() != nil {
+		return v.Visit(ctx.StructDecl())
+	}
+	if ctx.ExternDecl() != nil {
+		return v.Visit(ctx.ExternDecl())
+	}
+	if ctx.ConstDecl() != nil {
+		return v.Visit(ctx.ConstDecl())
+	}
+	if ctx.VariableDecl() != nil {
+		return v.Visit(ctx.VariableDecl())
+	}
+	return nil
+}
+
+// VisitNamespaceDecl handles namespace declarations (currently just noted)
+func (v *IRVisitor) VisitNamespaceDecl(ctx *parser.NamespaceDeclContext) interface{} {
+	// Namespace handling could be added here if needed
+	return nil
+}
+
+// VisitImportDecl handles import declarations (currently just noted)
+func (v *IRVisitor) VisitImportDecl(ctx *parser.ImportDeclContext) interface{} {
+	// Import handling could be added here if needed
+	return nil
+}
+
 // ============================================================================
 // EXTERN DECLARATIONS
 // ============================================================================
@@ -62,7 +174,7 @@ func (v *IRVisitor) VisitExternFunctionDecl(ctx *parser.ExternFunctionDeclContex
 	name := ctx.IDENTIFIER().GetText()
 	
 	// Get return type
-	var retType types.Type = types.Void  // Changed from retType := types.Void
+	var retType types.Type = types.Void
 	if ctx.Type_() != nil {
 		retType = v.resolveType(ctx.Type_())
 	}
@@ -188,6 +300,36 @@ func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 // ============================================================================
 // STATEMENTS
 // ============================================================================
+
+// VisitStatement handles the intermediate Statement node
+func (v *IRVisitor) VisitStatement(ctx *parser.StatementContext) interface{} {
+	// Dispatch to the actual statement type
+	if ctx.VariableDecl() != nil {
+		return v.Visit(ctx.VariableDecl())
+	}
+	if ctx.ConstDecl() != nil {
+		return v.Visit(ctx.ConstDecl())
+	}
+	if ctx.AssignmentStmt() != nil {
+		return v.Visit(ctx.AssignmentStmt())
+	}
+	if ctx.ReturnStmt() != nil {
+		return v.Visit(ctx.ReturnStmt())
+	}
+	if ctx.IfStmt() != nil {
+		return v.Visit(ctx.IfStmt())
+	}
+	if ctx.DeferStmt() != nil {
+		return v.Visit(ctx.DeferStmt())
+	}
+	if ctx.ExpressionStmt() != nil {
+		return v.Visit(ctx.ExpressionStmt())
+	}
+	if ctx.Block() != nil {
+		return v.Visit(ctx.Block())
+	}
+	return nil
+}
 
 func (v *IRVisitor) VisitBlock(ctx *parser.BlockContext) interface{} {
 	v.ctx.PushScope()
