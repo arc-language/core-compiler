@@ -16,6 +16,8 @@ github.com/arc-language/core-compiler v0.0.0-20251223220106-76e4a9c370f7 h1:zXtv
 github.com/arc-language/core-compiler v0.0.0-20251223220106-76e4a9c370f7/go.mod h1:35A/XQo/THb+ULaJ5Gj/rOPNQEdeIWlCVTFEC+c1omM=
 github.com/arc-language/core-compiler v0.0.0-20251223220350-94d9fe497284 h1:J6pUjo5Rc9oEv4rJqc9pprLY+S7iblxipjso03c8J8Y=
 github.com/arc-language/core-compiler v0.0.0-20251223220350-94d9fe497284/go.mod h1:35A/XQo/THb+ULaJ5Gj/rOPNQEdeIWlCVTFEC+c1omM=
+github.com/arc-language/core-compiler v0.0.0-20251223220615-b488bcbf3775 h1:d3OB9upNkv1jwBWTmbaHxPDjPWWYePPuu+rI4lKgwbs=
+github.com/arc-language/core-compiler v0.0.0-20251223220615-b488bcbf3775/go.mod h1:35A/XQo/THb+ULaJ5Gj/rOPNQEdeIWlCVTFEC+c1omM=
 github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772 h1:9Gua+mHnZmTGyJKZGluTeAfBxdgn92HBLSNwpSxhXUw=
 github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772/go.mod h1:BLt/5INiwrJOd15QBGG6nUVA8CFJLyeU1+de32mJ9S4=
 golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 h1:vr/HnozRka3pE4EsMEg1lgkXJkTFJCVUX+S/ZT6wYzM=

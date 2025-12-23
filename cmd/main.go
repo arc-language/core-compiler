@@ -14,86 +14,114 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
-	
-	inputFile := os.Args[1]
-	
-	// Check if file exists
+
+	command := os.Args[1]
+
+	switch command {
+	case "build":
+		handleBuild(os.Args[2:])
+	case "help":
+		printUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
+		printUsage()
+		os.Exit(1)
+	}
+}
+
+func handleBuild(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "Error: No input file specified\n\n")
+		printUsage()
+		os.Exit(1)
+	}
+
+	inputFile := args[0]
+	outputFile := ""
+
+	// Parse -o flag
+	for i := 1; i < len(args); i++ {
+		if args[i] == "-o" && i+1 < len(args) {
+			outputFile = args[i+1]
+			break
+		}
+	}
+
+	if outputFile == "" {
+		fmt.Fprintf(os.Stderr, "Error: Output file not specified (use -o)\n\n")
+		printUsage()
+		os.Exit(1)
+	}
+
+	// Check if input file exists
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "Error: File '%s' does not exist\n", inputFile)
 		os.Exit(1)
 	}
-	
-	// Read and print the source file for debugging
-	sourceBytes, err := os.ReadFile(inputFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
+
+	// Determine output format from extension
+	ext := strings.ToLower(filepath.Ext(outputFile))
+	if ext != ".o" && ext != ".ir" {
+		fmt.Fprintf(os.Stderr, "Error: Output file must have .o or .ir extension\n")
 		os.Exit(1)
 	}
-	fmt.Printf("=== Source File Content ===\n%s\n", string(sourceBytes))
-	fmt.Printf("=== End Source ===\n\n")
-	
-	// Determine output file
-	outputFile := strings.TrimSuffix(inputFile, filepath.Ext(inputFile)) + ".ir"
-	if len(os.Args) >= 4 && os.Args[2] == "-o" {
-		outputFile = os.Args[3]
-	}
-	
-	// Extract module name from file
+
+	// Extract module name from input file
 	moduleName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
-	
+
 	fmt.Printf("Compiling %s...\n", inputFile)
-	
+
 	// Create compiler
 	comp := compiler.NewCompiler(moduleName)
-	
-	// Compile file
+
+	// Compile source file
 	module, err := comp.CompileFile(inputFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
 		os.Exit(1)
 	}
-	
-	// Debug: Check module contents
-	if module == nil {
-		fmt.Fprintf(os.Stderr, "Error: Module is nil\n")
-		os.Exit(1)
+
+	fmt.Printf("Module has %d functions, %d globals\n", len(module.Functions), len(module.Globals))
+
+	// Generate output based on extension
+	if ext == ".o" {
+		err = comp.CompileToObject(outputFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Object generation failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✓ Object file written to %s\n", outputFile)
+
+		// Print linking hint
+		exeName := strings.TrimSuffix(filepath.Base(outputFile), ".o")
+		fmt.Printf("\nTo create executable:\n")
+		fmt.Printf("  gcc %s -o %s && ./%s\n", outputFile, exeName, exeName)
+	} else {
+		err = comp.CompileToIR(outputFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "IR generation failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✓ IR written to %s\n", outputFile)
 	}
-	
-	fmt.Printf("\n=== Module Statistics ===\n")
-	fmt.Printf("Functions: %d\n", len(module.Functions))
-	fmt.Printf("Globals: %d\n", len(module.Globals))
-	fmt.Printf("Types: %d\n", len(module.Types))
-	
-	// List functions
-	for i, fn := range module.Functions {
-		fmt.Printf("  Function %d: %s\n", i, fn.Name())
-	}
-	
-	irText := module.String()
-	fmt.Printf("\n=== Generated IR ===\n%s\n", irText)
-	fmt.Printf("=== End IR (length: %d bytes) ===\n\n", len(irText))
-	
-	// Write IR to file
-	f, err := os.Create(outputFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create output file: %v\n", err)
-		os.Exit(1)
-	}
-	defer f.Close()
-	
-	_, err = f.WriteString(irText)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to write IR: %v\n", err)
-		os.Exit(1)
-	}
-	
-	fmt.Printf("✓ Compilation successful\n")
-	fmt.Printf("✓ IR written to %s\n", outputFile)
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: arc <source-file> [-o <output-file>]\n")
-	fmt.Fprintf(os.Stderr, "\nExamples:\n")
-	fmt.Fprintf(os.Stderr, "  arc program.arc              # Generates program.ir\n")
-	fmt.Fprintf(os.Stderr, "  arc program.arc -o out.ir    # Generates out.ir\n")
+	fmt.Println("Arc Language Compiler")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Println("  arc build <source-file> -o <output-file>")
+	fmt.Println("  arc help")
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  build    Compile an Arc source file")
+	fmt.Println("  help     Show this help message")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  -o <file>    Output file (.o for object, .ir for IR)")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Println("  arc build program.arc -o output.o     # Compile to object file")
+	fmt.Println("  arc build program.arc -o output.ir    # Compile to IR")
+	fmt.Println("  arc help                              # Show help")
 }
