@@ -6,12 +6,24 @@ entry:
 
 define external i32 @someFunc() {
 entry:
-  ret i64 1000
+  %1 = icmp eq i64 100, 50
+  br i1 %1, label %if.then, label %if.next
+if.end:
+  ret i64 100
+if.then:
+  ret i64 200
+if.next:
+  %2 = icmp eq i64 100, 100
+  br i1 %2, label %elseif.then, label %elseif.next
+elseif.then:
+  ret i64 100
+elseif.next:
+  br label %if.end
 }
 
 define external i32 @main() {
 entry:
-  %1 = call i32 @someFunc()
-  %2 = call i32 @add(i32 %1, i64 42)
-  ret i32 %2
+  %3 = call i32 @someFunc()
+  %4 = call i32 @add(i32 %3, i64 42)
+  ret i32 %4
 }
