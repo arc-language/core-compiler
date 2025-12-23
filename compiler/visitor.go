@@ -351,9 +351,9 @@ func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface
 	name := ctx.IDENTIFIER().GetText()
 	
 	// Get type (if specified)
-	var allocType types.Type
+	var varType types.Type
 	if ctx.Type_() != nil {
-		allocType = v.resolveType(ctx.Type_())
+		varType = v.resolveType(ctx.Type_())
 	}
 	
 	// Evaluate initializer
@@ -362,30 +362,21 @@ func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface
 		initValue = v.Visit(ctx.Expression()).(ir.Value)
 		
 		// Infer type from initializer if not specified
-		if allocType == nil {
-			allocType = initValue.Type()
+		if varType == nil {
+			varType = initValue.Type()
 		}
 	} else {
 		// No initializer, use zero value
-		if allocType == nil {
+		if varType == nil {
 			v.ctx.Diagnostics.Error(fmt.Sprintf("variable '%s' needs type annotation or initializer", name))
 			return nil
 		}
+		initValue = v.getZeroValue(varType)
 	}
 	
-	// Allocate stack space
-	alloca := v.ctx.Builder.CreateAlloca(allocType, name)
-	
-	// Store initial value
-	if initValue != nil {
-		v.ctx.Builder.CreateStore(initValue, alloca)
-	} else {
-		zero := v.getZeroValue(allocType)
-		v.ctx.Builder.CreateStore(zero, alloca)
-	}
-	
-	// Add to symbol table
-	v.ctx.currentScope.Define(name, alloca)
+	// SSA-style: Store the VALUE directly in the symbol table
+	// NO alloca, NO store - just pure SSA!
+	v.ctx.currentScope.Define(name, initValue)
 	
 	return nil
 }
@@ -402,27 +393,50 @@ func (v *IRVisitor) VisitConstDecl(ctx *parser.ConstDeclContext) interface{} {
 	// Evaluate initializer
 	initValue := v.Visit(ctx.Expression()).(ir.Value)
 	
-	// For now, treat constants as immutable stack allocations
-	allocType := initValue.Type()
-	alloca := v.ctx.Builder.CreateAlloca(allocType, name)
-	v.ctx.Builder.CreateStore(initValue, alloca)
-	
-	// Add to symbol table as const
-	v.ctx.currentScope.DefineConst(name, alloca)
+	// SSA-style: Constants are just immutable SSA values - no memory needed!
+	v.ctx.currentScope.DefineConst(name, initValue)
 	
 	return nil
 }
 
 func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) interface{} {
-	// Get left-hand side (should be a pointer)
-	lhs := v.Visit(ctx.LeftHandSide()).(ir.Value)
+	// Get variable name from left-hand side
+	lhsCtx := ctx.LeftHandSide()
+	if lhsCtx.IDENTIFIER() != nil {
+		name := lhsCtx.IDENTIFIER().GetText()
+		
+		// Get new value
+		rhs := v.Visit(ctx.Expression()).(ir.Value)
+		
+		// Check if variable exists
+		sym, ok := v.ctx.currentScope.Lookup(name)
+		if !ok {
+			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
+			return nil
+		}
+		
+		// Check if it's const
+		if sym.IsConst {
+			v.ctx.Diagnostics.Error(fmt.Sprintf("cannot assign to constant '%s'", name))
+			return nil
+		}
+		
+		// In SSA, we shadow the variable with a new value
+		// This creates a new SSA value in the current scope
+		v.ctx.currentScope.Define(name, rhs)
+		
+		return nil
+	}
 	
-	// Get right-hand side value
-	rhs := v.Visit(ctx.Expression()).(ir.Value)
+	// Handle pointer dereference assignment
+	if lhsCtx.STAR() != nil {
+		ptr := v.Visit(lhsCtx.Expression()).(ir.Value)
+		rhs := v.Visit(ctx.Expression()).(ir.Value)
+		v.ctx.Builder.CreateStore(rhs, ptr)
+		return nil
+	}
 	
-	// Store value
-	v.ctx.Builder.CreateStore(rhs, lhs)
-	
+	v.ctx.Diagnostics.Error("complex assignment not yet supported")
 	return nil
 }
 
@@ -634,8 +648,12 @@ func (v *IRVisitor) VisitUnaryExpression(ctx *parser.UnaryExpressionContext) int
 	}
 	
 	if ctx.AMP() != nil {
-		// Address-of - the value should already be a pointer (lvalue)
-		return v.Visit(ctx.UnaryExpression())
+		// Address-of operator
+		// For SSA values, we need to create an alloca and store the value
+		val := v.Visit(ctx.UnaryExpression()).(ir.Value)
+		alloca := v.ctx.Builder.CreateAlloca(val.Type(), "")
+		v.ctx.Builder.CreateStore(val, alloca)
+		return alloca
 	}
 	
 	return v.Visit(ctx.PostfixExpression())
@@ -716,16 +734,11 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 			}
 			
 			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
-			return v.ctx.Builder.ConstInt(types.I32, 0)
+			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		
-		// If the symbol is a pointer (from alloca), load its value
-		// unless we're in an lvalue context (handled separately)
-		if ptrType, ok := sym.Value.Type().(*types.PointerType); ok {
-			// This is a variable, load its value
-			return v.ctx.Builder.CreateLoad(ptrType.ElementType, sym.Value, "")
-		}
-		
+		// Just return the SSA value directly - no loading!
+		// The value is already an SSA value, not a pointer
 		return sym.Value
 	}
 	
@@ -749,14 +762,15 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		return v.Visit(ctx.StructLiteral())
 	}
 	
-	return v.ctx.Builder.ConstInt(types.I32, 0)
+	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 
 func (v *IRVisitor) VisitLiteral(ctx *parser.LiteralContext) interface{} {
 	if ctx.INTEGER_LITERAL() != nil {
 		text := ctx.INTEGER_LITERAL().GetText()
 		val, _ := strconv.ParseInt(text, 0, 64)
-		return v.ctx.Builder.ConstInt(types.I32, val)
+		// Use I64 for integer literals (matches int64 type)
+		return v.ctx.Builder.ConstInt(types.I64, val)
 	}
 	
 	if ctx.FLOAT_LITERAL() != nil {
@@ -775,10 +789,10 @@ func (v *IRVisitor) VisitLiteral(ctx *parser.LiteralContext) interface{} {
 	if ctx.STRING_LITERAL() != nil {
 		// TODO: Implement string literals as global constants
 		v.ctx.Diagnostics.Warning("string literals not fully implemented")
-		return v.ctx.Builder.ConstInt(types.I32, 0)
+		return v.ctx.Builder.ConstInt(types.I64, 0)
 	}
 	
-	return v.ctx.Builder.ConstInt(types.I32, 0)
+	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 
 func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) interface{} {
@@ -803,11 +817,17 @@ func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) inter
 	}
 	
 	if types.IsInteger(srcType) && types.IsFloat(destType) {
-		return v.ctx.Builder.CreateSIToFP(val, destType, "")
+		if srcType.(*types.IntType).Signed {
+			return v.ctx.Builder.CreateSIToFP(val, destType, "")
+		}
+		return v.ctx.Builder.CreateUIToFP(val, destType, "")
 	}
 	
 	if types.IsFloat(srcType) && types.IsInteger(destType) {
-		return v.ctx.Builder.CreateFPToSI(val, destType, "")
+		if destType.(*types.IntType).Signed {
+			return v.ctx.Builder.CreateFPToSI(val, destType, "")
+		}
+		return v.ctx.Builder.CreateFPToUI(val, destType, "")
 	}
 	
 	// Default: bitcast
@@ -826,6 +846,14 @@ func (v *IRVisitor) VisitAllocaExpression(ctx *parser.AllocaExpressionContext) i
 	return v.ctx.Builder.CreateAlloca(allocType, "")
 }
 
+func (v *IRVisitor) VisitStructLiteral(ctx *parser.StructLiteralContext) interface{} {
+	// TODO: Implement struct literal construction
+	// This would typically involve creating a temporary struct value or alloca
+	// and populating fields.
+	v.ctx.Diagnostics.Warning("struct literals not fully implemented")
+	return v.ctx.Builder.ConstInt(types.I64, 0)
+}
+
 func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface{} {
 	args := make([]ir.Value, 0)
 	
@@ -838,31 +866,48 @@ func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface
 }
 
 func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface{} {
-	// Check for different left-hand side patterns
+	// In the new SSA visitor, variable assignment is handled directly in VisitAssignmentStmt.
+	// VisitLeftHandSide is primarily used for obtaining memory addresses for pointer operations
+	// (e.g., &x, *p = val).
+
 	if ctx.IDENTIFIER() != nil {
 		name := ctx.IDENTIFIER().GetText()
+		
+		// In SSA, we generally don't get the address of a local variable unless it
+		// was explicitly allocated with `alloca` (which creates a pointer type variable).
 		sym, ok := v.ctx.currentScope.Lookup(name)
 		if !ok {
 			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
-			return v.ctx.Builder.ConstInt(types.I32, 0)
+			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
+		
+		// If the value is already a pointer (explicit allocation), return it.
+		// If it's a direct SSA value, we technically can't take its address 
+		// without spilling it to the stack first.
+		if _, isPtr := sym.Value.Type().(*types.PointerType); isPtr {
+			return sym.Value
+		}
+		
+		v.ctx.Diagnostics.Error(fmt.Sprintf("cannot take address of SSA value '%s'", name))
 		return sym.Value
 	}
 	
 	if ctx.STAR() != nil {
-		// Dereference pattern: *ptr = value
+		// Dereference pattern: *ptr
+		// The expression inside must evaluate to a pointer
 		ptr := v.Visit(ctx.Expression()).(ir.Value)
 		return ptr
 	}
 	
 	if ctx.DOT() != nil {
-		// Field access: obj.field = value
-		// This would need more sophisticated handling
-		v.ctx.Diagnostics.Error("field assignment not fully implemented")
-		return v.ctx.Builder.ConstInt(types.I32, 0)
+		// Field access: obj.field
+		// This requires the object to be a pointer to a struct
+		// Implementation depends on how GEP is handled in your IR builder
+		v.ctx.Diagnostics.Error("field assignment address not fully implemented")
+		return v.ctx.Builder.ConstInt(types.I64, 0)
 	}
 	
-	return v.ctx.Builder.ConstInt(types.I32, 0)
+	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 
 // ============================================================================
@@ -881,8 +926,9 @@ func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 		if typ, ok := v.ctx.GetType(name); ok {
 			return typ
 		}
+		// Standardize default fallback to I64 for this new visitor
 		v.ctx.Diagnostics.Error(fmt.Sprintf("unknown type: %s", name))
-		return types.I32
+		return types.I64
 	}
 	
 	if typeCtx.PointerType() != nil {
@@ -902,10 +948,10 @@ func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 			return typ
 		}
 		v.ctx.Diagnostics.Error(fmt.Sprintf("unknown type: %s", name))
-		return types.I32
+		return types.I64
 	}
 	
-	return types.I32
+	return types.I64
 }
 
 func (v *IRVisitor) getZeroValue(typ types.Type) ir.Value {
@@ -922,8 +968,11 @@ func (v *IRVisitor) getZeroValue(typ types.Type) ir.Value {
 }
 
 func (v *IRVisitor) findFieldIndex(structType *types.StructType, fieldName string) int {
-	// This is simplified - in a real compiler, you'd maintain field name mappings
-	// For now, we can't easily map field names to indices without additional metadata
+	// This logic assumes StructType has a way to look up fields or we iterate types
+	// Since the exact definition of types.Struct isn't visible, we assume standard index lookup.
+	// In a real implementation, you might need to iterate `structType.Fields` to match the name.
+	
+	// Placeholder logic:
 	v.ctx.Diagnostics.Warning(fmt.Sprintf("field name resolution not fully implemented for '%s'", fieldName))
 	return 0
 }

@@ -2,6 +2,8 @@ github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYW
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
 github.com/arc-language/core-builder v0.0.0-20251222230544-91aac0849f4f h1:cqLay64TCHtwS8HNkSpwRCHLUXTqgrzGuST4uvPL+Ys=
 github.com/arc-language/core-builder v0.0.0-20251222230544-91aac0849f4f/go.mod h1:19aJJsZ3HkyQ3IBjxjhVjmeiThxFcPqvhP1YPFWqj+M=
+github.com/arc-language/core-codegen v0.0.0-20251223194808-5db44bb9f202 h1:yTrmtkr9q7lpwHiu6gdLBaNYJPByOz8EQ3x/F63r498=
+github.com/arc-language/core-codegen v0.0.0-20251223194808-5db44bb9f202/go.mod h1:+PZFdeewFhSYo+OuOcwbQ06W61cMmVohZsctmIdpfVY=
 github.com/arc-language/core-compiler v0.0.0-20251223212843-5bdcf4f0cd4b h1:sRUdy2jSv8TiQ4sbyoUb20E8nwo+22qO/kJdNlrmTCE=
 github.com/arc-language/core-compiler v0.0.0-20251223212843-5bdcf4f0cd4b/go.mod h1:35A/XQo/THb+ULaJ5Gj/rOPNQEdeIWlCVTFEC+c1omM=
 github.com/arc-language/core-compiler v0.0.0-20251223213646-194d10096b89 h1:t2ug42Nm+tl6IHyHCulWUZlFXOguIlZq+u+1hd3GU3o=
@@ -18,6 +20,8 @@ github.com/arc-language/core-compiler v0.0.0-20251223220350-94d9fe497284 h1:J6pU
 github.com/arc-language/core-compiler v0.0.0-20251223220350-94d9fe497284/go.mod h1:35A/XQo/THb+ULaJ5Gj/rOPNQEdeIWlCVTFEC+c1omM=
 github.com/arc-language/core-compiler v0.0.0-20251223220615-b488bcbf3775 h1:d3OB9upNkv1jwBWTmbaHxPDjPWWYePPuu+rI4lKgwbs=
 github.com/arc-language/core-compiler v0.0.0-20251223220615-b488bcbf3775/go.mod h1:35A/XQo/THb+ULaJ5Gj/rOPNQEdeIWlCVTFEC+c1omM=
+github.com/arc-language/core-compiler v0.0.0-20251223221359-2c5321b49d9d h1:lkPOwasnIqJIPU/vT+68QqR9AEZ5E4C6LdJlWXY+hp0=
+github.com/arc-language/core-compiler v0.0.0-20251223221359-2c5321b49d9d/go.mod h1:35A/XQo/THb+ULaJ5Gj/rOPNQEdeIWlCVTFEC+c1omM=
 github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772 h1:9Gua+mHnZmTGyJKZGluTeAfBxdgn92HBLSNwpSxhXUw=
 github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772/go.mod h1:BLt/5INiwrJOd15QBGG6nUVA8CFJLyeU1+de32mJ9S4=
 golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 h1:vr/HnozRka3pE4EsMEg1lgkXJkTFJCVUX+S/ZT6wYzM=
