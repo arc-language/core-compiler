@@ -466,8 +466,9 @@ func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 		retVal := v.Visit(ctx.Expression()).(ir.Value)
 		
 		// Implicit Cast: Check function return type
-		if v.ctx.CurrentFunction != nil {
-			expectedType := v.ctx.CurrentFunction.FuncType.ReturnType
+		// FIX: Use 'currentFunction' (lowercase) instead of 'CurrentFunction'
+		if v.ctx.currentFunction != nil {
+			expectedType := v.ctx.currentFunction.FuncType.ReturnType
 			if !retVal.Type().Equal(expectedType) {
 				retVal = v.castValue(retVal, expectedType)
 			}
