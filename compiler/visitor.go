@@ -99,7 +99,7 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 	name := ctx.IDENTIFIER().GetText()
 	
 	// Get return type
-	retType := types.Void
+	var retType types.Type = types.Void
 	if ctx.Type_() != nil {
 		retType = v.resolveType(ctx.Type_())
 	}
