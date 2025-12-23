@@ -50,6 +50,8 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitImportDecl(ctx)
 	case *parser.ExternDeclContext:
 		return v.VisitExternDecl(ctx)
+    case *parser.ExternMemberContext:
+        return v.VisitExternMember(ctx)
 	case *parser.ExternFunctionDeclContext:
 		return v.VisitExternFunctionDecl(ctx)
 	case *parser.FunctionDeclContext:
@@ -191,6 +193,13 @@ func (v *IRVisitor) VisitExternDecl(ctx *parser.ExternDeclContext) interface{} {
 	}
 
 	v.currentNamespace = oldNamespace
+	return nil
+}
+
+func (v *IRVisitor) VisitExternMember(ctx *parser.ExternMemberContext) interface{} {
+	if ctx.ExternFunctionDecl() != nil {
+		return v.Visit(ctx.ExternFunctionDecl())
+	}
 	return nil
 }
 

@@ -1,10 +1,9 @@
-// example_v1.arc
+// example_v2.arc
 namespace main
 
 
-
 extern io {
-    func printf (*byte, ...) -> int32
+    func printf (*byte, ...) int32
 }
 
 
