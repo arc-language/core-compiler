@@ -4,14 +4,14 @@ entry:
   ret i32 %0
 }
 
+define external i32 @someFunc() {
+entry:
+  ret i64 1000
+}
+
 define external i32 @main() {
 entry:
-  %x = alloca i32
-  store i32 100, ptr<i32> %x
-  %y = alloca i32
-  store i32 42, ptr<i32> %y
-  %1 = load i32, ptr<i32> %x
-  %2 = load i32, ptr<i32> %y
-  %3 = call i32 @add(i32 %1, i32 %2)
-  ret i32 %3
+  %1 = call i32 @someFunc()
+  %2 = call i32 @add(i32 %1, i64 42)
+  ret i32 %2
 }

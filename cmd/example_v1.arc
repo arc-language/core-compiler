@@ -1,12 +1,27 @@
 // example_v1.arc
 namespace main
 
-func add(a: int64, b: int64) int64 {
+func add(a: int32, b: int32) int32 {
+
     return a + b
 }
 
-func main() int64 {
-    let x: int64 = 100
-    let y: int64 = 42
+func someFunc() int32 {
+ 
+    let m: int32 = 100
+
+    if m == 50 {
+        return 200
+    } else if m == 100 {
+        return 500
+    }
+
+    return m
+}
+
+func main() int32 {
+
+    let x = someFunc()
+    let y = 42
     return add(x, y)
 }

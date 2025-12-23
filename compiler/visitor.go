@@ -460,50 +460,67 @@ func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 }
 
 func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
-	// Get condition
-	cond := v.Visit(ctx.Expression(0)).(ir.Value)
-	
-	// Create blocks
-	thenBlock := v.ctx.Builder.CreateBlock("if.then")
-	mergeBlock := v.ctx.Builder.CreateBlock("if.end")
-	
-	var elseBlock *ir.BasicBlock
-	hasElse := len(ctx.AllELSE()) > 0
-	
-	if hasElse {
-		elseBlock = v.ctx.Builder.CreateBlock("if.else")
-		v.ctx.Builder.CreateCondBr(cond, thenBlock, elseBlock)
-	} else {
-		v.ctx.Builder.CreateCondBr(cond, thenBlock, mergeBlock)
-	}
-	
-	// Then block
-	v.ctx.SetInsertBlock(thenBlock)
-	v.Visit(ctx.Block(0))
-	if thenBlock.Terminator() == nil {
-		v.ctx.Builder.CreateBr(mergeBlock)
-	}
-	
-	// Else block
-	if hasElse {
-		v.ctx.SetInsertBlock(elseBlock)
-		// Handle else-if or else
-		if len(ctx.AllIF()) > 1 {
-			// This is else-if, recursively handle
-			// Simplified: just visit the else block
-			v.Visit(ctx.Block(1))
-		} else {
-			v.Visit(ctx.Block(1))
-		}
-		if elseBlock.Terminator() == nil {
-			v.ctx.Builder.CreateBr(mergeBlock)
-		}
-	}
-	
-	// Continue in merge block
-	v.ctx.SetInsertBlock(mergeBlock)
-	
-	return nil
+    // 1. Setup merge block for everyone to exit to
+    mergeBlock := v.ctx.Builder.CreateBlock("if.end")
+    
+    // 2. Iterate through all IF / ELSE IF clauses
+    count := len(ctx.AllIF())
+    
+    // We need to track the block where the next check happens (the "else" of the previous if)
+    // Initially, this is the current block where VisitIfStmt was called.
+    // However, LLVM builders usually work by "current insert block".
+    
+    // Special handling for the first one to setup the chain
+    cond := v.Visit(ctx.Expression(0)).(ir.Value)
+    thenBlock := v.ctx.Builder.CreateBlock("if.then")
+    nextCheckBlock := v.ctx.Builder.CreateBlock("if.next") // This acts as the "else" for the current if
+    
+    v.ctx.Builder.CreateCondBr(cond, thenBlock, nextCheckBlock)
+    
+    // Generate First THEN
+    v.ctx.SetInsertBlock(thenBlock)
+    v.Visit(ctx.Block(0))
+    if thenBlock.Terminator() == nil {
+        v.ctx.Builder.CreateBr(mergeBlock)
+    }
+    
+    // Move to next check
+    v.ctx.SetInsertBlock(nextCheckBlock)
+    
+    // Loop for ELSE IFs
+    for i := 1; i < count; i++ {
+        cond := v.Visit(ctx.Expression(i)).(ir.Value)
+        
+        thenBlock := v.ctx.Builder.CreateBlock("elseif.then")
+        newNextBlock := v.ctx.Builder.CreateBlock("elseif.next")
+        
+        v.ctx.Builder.CreateCondBr(cond, thenBlock, newNextBlock)
+        
+        // Generate THEN for this else-if
+        v.ctx.SetInsertBlock(thenBlock)
+        v.Visit(ctx.Block(i))
+        if thenBlock.Terminator() == nil {
+            v.ctx.Builder.CreateBr(mergeBlock)
+        }
+        
+        // Update insertion point for next iteration or final else
+        v.ctx.SetInsertBlock(newNextBlock)
+    }
+    
+    // 3. Handle Final ELSE
+    // If blocks > IFs, the last block is an unconditional ELSE
+    if len(ctx.AllBlock()) > count {
+        v.Visit(ctx.Block(count))
+        // The block we are inserting into is the last "newNextBlock" created above
+    }
+    
+    // Close the chain
+    if v.ctx.currentBlock.Terminator() == nil {
+        v.ctx.Builder.CreateBr(mergeBlock)
+    }
+    
+    v.ctx.SetInsertBlock(mergeBlock)
+    return nil
 }
 
 func (v *IRVisitor) VisitDeferStmt(ctx *parser.DeferStmtContext) interface{} {
