@@ -1,32 +1,8 @@
-define external i32 @add(i32 %a, i32 %b) {
-entry:
-  %0 = add i32 %a, %b
-  ret i32 %0
-}
-
-define external i32 @someFunc() {
-entry:
-  %1 = icmp eq i64 100, 50
-  br i1 %1, label %if.then, label %if.next
-if.end:
-  %5 = trunc i64 100 to i32
-  ret i32 %5
-if.then:
-  %2 = trunc i64 200 to i32
-  ret i32 %2
-if.next:
-  %3 = icmp eq i64 100, 100
-  br i1 %3, label %elseif.then, label %elseif.next
-elseif.then:
-  %4 = trunc i64 100 to i32
-  ret i32 %4
-elseif.next:
-  br label %if.end
-}
+declare external i32 @printf(ptr<u8>, ...)
 
 define external i32 @main() {
 entry:
-  %6 = call i32 @someFunc()
-  %7 = trunc i64 0 to i32
-  ret i32 %7
+  %0 = call i32 @printf(i64 0, i64 42)
+  %1 = trunc i64 0 to i32
+  ret i32 %1
 }

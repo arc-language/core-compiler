@@ -773,17 +773,71 @@ func (v *IRVisitor) VisitLiteral(ctx *parser.LiteralContext) interface{} {
 		val, _ := strconv.ParseInt(text, 0, 64)
 		return v.ctx.Builder.ConstInt(types.I64, val)
 	}
+
 	if ctx.FLOAT_LITERAL() != nil {
 		text := ctx.FLOAT_LITERAL().GetText()
 		val, _ := strconv.ParseFloat(text, 64)
 		return v.ctx.Builder.ConstFloat(types.F64, val)
 	}
+
 	if ctx.BOOLEAN_LITERAL() != nil {
 		if ctx.BOOLEAN_LITERAL().GetText() == "true" {
 			return v.ctx.Builder.True()
 		}
 		return v.ctx.Builder.False()
 	}
+
+	// IMPLEMENTATION OF STRING LITERALS
+	if ctx.STRING_LITERAL() != nil {
+		rawText := ctx.STRING_LITERAL().GetText()
+		
+		// Unquote the string (converts "\n" to actual newline, etc.)
+		content, err := strconv.Unquote(rawText)
+		if err != nil {
+			// Fallback if parsing fails (shouldn't happen with valid tokens)
+			if len(rawText) >= 2 {
+				content = rawText[1 : len(rawText)-1]
+			} else {
+				content = rawText
+			}
+		}
+
+		// Append NULL terminator (C-style strings required for printf)
+		bytes := append([]byte(content), 0)
+
+		// Create IR constants for the array elements
+		elements := make([]ir.Constant, len(bytes))
+		for i, b := range bytes {
+			elements[i] = v.ctx.Builder.ConstInt(types.I8, int64(b))
+		}
+
+		// Create the array type: [N x i8]
+		arrType := types.NewArray(types.I8, int64(len(bytes)))
+
+		// Create the constant array value
+		constArr := &ir.ConstantArray{
+			BaseValue: ir.BaseValue{ValType: arrType},
+			Elements:  elements,
+		}
+
+		// Create a global constant to hold the string bytes
+		// Name it .str.N to avoid collisions
+		strName := fmt.Sprintf(".str.%d", len(v.ctx.Module.Globals))
+		global := v.ctx.Builder.CreateGlobalConstant(strName, constArr)
+
+		// Decay the array to a pointer (i8*) using GEP
+		// This converts [N x i8]* -> i8* which printf expects (*byte)
+		zero := v.ctx.Builder.ConstInt(types.I32, 0)
+		gep := v.ctx.Builder.CreateInBoundsGEP(
+			arrType,
+			global,
+			[]ir.Value{zero, zero},
+			"",
+		)
+
+		return gep
+	}
+
 	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 

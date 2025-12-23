@@ -6,7 +6,7 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/arc-language/core-builder v0.0.0-20251222230544-91aac0849f4f // indirect
 	github.com/arc-language/core-codegen v0.0.0-20251223194808-5db44bb9f202 // indirect
-	github.com/arc-language/core-compiler v0.0.0-20251223234354-f5fafe9d455c // indirect
+	github.com/arc-language/core-compiler v0.0.0-20251223234906-fc9d3e249e1a // indirect
 	github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 )
