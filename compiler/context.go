@@ -51,7 +51,7 @@ func NewContext(moduleName string) *Context {
 
 // registerBuiltinTypes registers primitive and builtin types
 func (c *Context) registerBuiltinTypes() {
-	// Primitive integer types
+	// LLVM-style type names (for internal use)
 	c.namedTypes["i1"] = types.I1
 	c.namedTypes["i8"] = types.I8
 	c.namedTypes["i16"] = types.I16
@@ -64,15 +64,38 @@ func (c *Context) registerBuiltinTypes() {
 	c.namedTypes["u32"] = types.U32
 	c.namedTypes["u64"] = types.U64
 	
-	// Floating point types
 	c.namedTypes["f16"] = types.F16
 	c.namedTypes["f32"] = types.F32
 	c.namedTypes["f64"] = types.F64
 	c.namedTypes["f128"] = types.F128
 	
+	// Arc language type names (Go-style)
+	// Signed integers
+	c.namedTypes["int8"] = types.I8
+	c.namedTypes["int16"] = types.I16
+	c.namedTypes["int32"] = types.I32
+	c.namedTypes["int64"] = types.I64
+	c.namedTypes["int"] = types.I64 // Default int is 64-bit
+	
+	// Unsigned integers
+	c.namedTypes["uint8"] = types.U8
+	c.namedTypes["uint16"] = types.U16
+	c.namedTypes["uint32"] = types.U32
+	c.namedTypes["uint64"] = types.U64
+	c.namedTypes["uint"] = types.U64 // Default uint is 64-bit
+	c.namedTypes["byte"] = types.U8  // Alias for uint8
+	
+	// Floating point
+	c.namedTypes["float32"] = types.F32
+	c.namedTypes["float64"] = types.F64
+	c.namedTypes["float"] = types.F64 // Default float is 64-bit
+	
 	// Special types
 	c.namedTypes["void"] = types.Void
 	c.namedTypes["bool"] = types.I1
+	
+	// Convenience aliases
+	c.namedTypes["rune"] = types.I32 // UTF-32 character (like Go)
 }
 
 // GetType resolves a type name to a Type
