@@ -719,6 +719,13 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 			return v.ctx.Builder.ConstInt(types.I32, 0)
 		}
 		
+		// If the symbol is a pointer (from alloca), load its value
+		// unless we're in an lvalue context (handled separately)
+		if ptrType, ok := sym.Value.Type().(*types.PointerType); ok {
+			// This is a variable, load its value
+			return v.ctx.Builder.CreateLoad(ptrType.ElementType, sym.Value, "")
+		}
+		
 		return sym.Value
 	}
 	
