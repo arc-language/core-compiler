@@ -63,8 +63,8 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: arcc <source-file> [-o <output-file>]\n")
+	fmt.Fprintf(os.Stderr, "Usage: arc <source-file> [-o <output-file>]\n")
 	fmt.Fprintf(os.Stderr, "\nExamples:\n")
-	fmt.Fprintf(os.Stderr, "  arcc program.arc              # Generates program.ir\n")
-	fmt.Fprintf(os.Stderr, "  arcc program.arc -o out.ir    # Generates out.ir\n")
+	fmt.Fprintf(os.Stderr, "  arc program.arc              # Generates program.ir\n")
+	fmt.Fprintf(os.Stderr, "  arc program.arc -o out.ir    # Generates out.ir\n")
 }

@@ -2,7 +2,6 @@ package compiler
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
@@ -37,11 +36,6 @@ func (c *Compiler) CompileFile(filename string) (*ir.Module, error) {
 	p := parser.NewArcParser(stream)
 	tree := p.CompilationUnit()
 	
-	// Check for parse errors
-	if p.GetNumberOfSyntaxErrors() > 0 {
-		return nil, fmt.Errorf("syntax errors encountered")
-	}
-	
 	// Generate IR
 	visitor := NewIRVisitor(c.context)
 	visitor.Visit(tree)
@@ -73,11 +67,6 @@ func (c *Compiler) CompileString(source string) (*ir.Module, error) {
 	// Parse
 	p := parser.NewArcParser(stream)
 	tree := p.CompilationUnit()
-	
-	// Check for parse errors
-	if p.GetNumberOfSyntaxErrors() > 0 {
-		return nil, fmt.Errorf("syntax errors encountered")
-	}
 	
 	// Generate IR
 	visitor := NewIRVisitor(c.context)

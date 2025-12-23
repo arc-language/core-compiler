@@ -3,7 +3,6 @@ package compiler
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
@@ -30,9 +29,9 @@ func NewIRVisitor(ctx *Context) *IRVisitor {
 // ============================================================================
 
 func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) interface{} {
-	// Visit namespace declaration
-	if ctx.NamespaceDecl() != nil {
-		v.Visit(ctx.NamespaceDecl())
+	// Visit namespace declarations
+	for _, ns := range ctx.AllNamespaceDecl() {
+		v.Visit(ns)
 	}
 	
 	// Visit imports
@@ -53,9 +52,9 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 // ============================================================================
 
 func (v *IRVisitor) VisitExternDecl(ctx *parser.ExternDeclContext) interface{} {
-	// Visit all extern function declarations
-	for _, fnDecl := range ctx.AllExternFunctionDecl() {
-		v.Visit(fnDecl)
+	// Visit all extern members
+	for _, member := range ctx.AllExternMember() {
+		v.Visit(member)
 	}
 	return nil
 }
@@ -598,14 +597,6 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		return v.Visit(ctx.AllocaExpression())
 	}
 	
-	if ctx.VectorLiteral() != nil {
-		return v.Visit(ctx.VectorLiteral())
-	}
-	
-	if ctx.MapLiteral() != nil {
-		return v.Visit(ctx.MapLiteral())
-	}
-	
 	if ctx.StructLiteral() != nil {
 		return v.Visit(ctx.StructLiteral())
 	}
@@ -699,20 +690,43 @@ func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface
 }
 
 func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface{} {
-	// Left-hand side should be an lvalue (pointer)
-	return v.Visit(ctx.PostfixExpression())
+	// Check for different left-hand side patterns
+	if ctx.IDENTIFIER() != nil {
+		name := ctx.IDENTIFIER().GetText()
+		sym, ok := v.ctx.currentScope.Lookup(name)
+		if !ok {
+			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
+			return v.ctx.Builder.ConstInt(types.I32, 0)
+		}
+		return sym.Value
+	}
+	
+	if ctx.STAR() != nil {
+		// Dereference pattern: *ptr = value
+		ptr := v.Visit(ctx.Expression()).(ir.Value)
+		return ptr
+	}
+	
+	if ctx.DOT() != nil {
+		// Field access: obj.field = value
+		// This would need more sophisticated handling
+		v.ctx.Diagnostics.Error("field assignment not fully implemented")
+		return v.ctx.Builder.ConstInt(types.I32, 0)
+	}
+	
+	return v.ctx.Builder.ConstInt(types.I32, 0)
 }
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-func (v *IRVisitor) resolveType(ctx parser.IType_Context) types.Type {
+func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 	if ctx == nil {
 		return types.Void
 	}
 	
-	typeCtx := ctx.(*parser.Type_Context)
+	typeCtx := ctx.(*parser.TypeContext)
 	
 	if typeCtx.PrimitiveType() != nil {
 		name := typeCtx.PrimitiveType().GetText()
