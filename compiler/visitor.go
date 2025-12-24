@@ -1,4 +1,3 @@
-// visitor.go
 package compiler
 
 import (
@@ -202,7 +201,17 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 	if ctx.Block() != nil {
 		entry := v.ctx.Builder.CreateBlock("entry")
 		v.ctx.SetInsertBlock(entry)
-		for i, arg := range fn.Arguments { v.ctx.currentScope.Define(paramNames[i], arg) }
+		
+		// Define arguments in scope (as allocas for mutability)
+		for i, arg := range fn.Arguments {
+			// Allocate stack space for the argument
+			alloc := v.ctx.Builder.CreateAlloca(arg.Type(), paramNames[i] + ".addr")
+			// Store the argument value into the stack slot
+			v.ctx.Builder.CreateStore(arg, alloc)
+			// Define the symbol as the stack address
+			v.ctx.currentScope.Define(paramNames[i], alloc)
+		}
+		
 		v.Visit(ctx.Block())
 		if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 			if retType.Kind() == types.VoidKind {
@@ -273,7 +282,14 @@ func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface
 		}
 		initValue = v.getZeroValue(varType)
 	}
-	v.ctx.currentScope.Define(name, initValue)
+
+	// Create alloca (stack allocation) for the variable
+	alloca := v.ctx.Builder.CreateAlloca(varType, name + ".addr")
+	// Store initial value
+	v.ctx.Builder.CreateStore(initValue, alloca)
+	// Define symbol as the alloca (pointer)
+	v.ctx.currentScope.Define(name, alloca)
+	
 	return nil
 }
 
@@ -302,6 +318,14 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 			v.ctx.Diagnostics.Error(fmt.Sprintf("cannot assign to constant '%s'", name))
 			return nil
 		}
+		
+		// If symbol is an alloca (variable), store to it
+		if ptr, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
+			v.ctx.Builder.CreateStore(rhs, ptr)
+			return nil
+		}
+
+		// Fallback (mostly for legacy/error cases where symbol isn't an alloca)
 		v.ctx.currentScope.Define(name, rhs)
 		return nil
 	}
@@ -685,6 +709,13 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
+
+		// If symbol is an alloca (variable), load it
+		if ptr, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
+			ptrType := ptr.Type().(*types.PointerType)
+			return v.ctx.Builder.CreateLoad(ptrType.ElementType, ptr, "")
+		}
+
 		return sym.Value
 	}
 	if ctx.Literal() != nil { return v.Visit(ctx.Literal()) }
