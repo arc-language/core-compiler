@@ -8,9 +8,11 @@ extern io {
 
 func main() int32 {
 
-    let y = 42
+    let y = 1000
 
-    io.printf("%d\n", y)
+    if y == 1000 {
+        io.printf("%d\n", y)
+    }
 
     return 0
 }

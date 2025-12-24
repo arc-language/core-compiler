@@ -842,11 +842,22 @@ func (v *IRVisitor) VisitLiteral(ctx *parser.LiteralContext) interface{} {
 }
 
 func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) interface{} {
+	// 1. Evaluate the expression being cast
 	val := v.Visit(ctx.Expression()).(ir.Value)
+	
+	// 2. Resolve the target type
 	destType := v.resolveType(ctx.Type_())
 	srcType := val.Type()
 
-	// Integer casts
+	// 3. Pointer <-> Integer Casting (Required for NULL checks like 'file == 0')
+	if types.IsPointer(srcType) && types.IsInteger(destType) {
+		return v.ctx.Builder.CreatePtrToInt(val, destType, "")
+	}
+	if types.IsInteger(srcType) && types.IsPointer(destType) {
+		return v.ctx.Builder.CreateIntToPtr(val, destType, "")
+	}
+
+	// 4. Integer Resizing (Truncate / Extend)
 	if types.IsInteger(srcType) && types.IsInteger(destType) {
 		srcInt := srcType.(*types.IntType)
 		destInt := destType.(*types.IntType)
@@ -859,9 +870,14 @@ func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) inter
 		} else if destInt.BitWidth < srcInt.BitWidth {
 			return v.ctx.Builder.CreateTrunc(val, destType, "")
 		}
+		// BitWidths are equal, no-op or bitcast
+		if srcInt.Signed != destInt.Signed {
+			return v.ctx.Builder.CreateBitCast(val, destType, "")
+		}
+		return val
 	}
 
-	// Int -> Float
+	// 5. Integer <-> Float Conversions
 	if types.IsInteger(srcType) && types.IsFloat(destType) {
 		if srcType.(*types.IntType).Signed {
 			return v.ctx.Builder.CreateSIToFP(val, destType, "")
@@ -869,7 +885,6 @@ func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) inter
 		return v.ctx.Builder.CreateUIToFP(val, destType, "")
 	}
 
-	// Float -> Int
 	if types.IsFloat(srcType) && types.IsInteger(destType) {
 		if destType.(*types.IntType).Signed {
 			return v.ctx.Builder.CreateFPToSI(val, destType, "")
@@ -877,6 +892,21 @@ func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) inter
 		return v.ctx.Builder.CreateFPToUI(val, destType, "")
 	}
 
+	// 6. Float Resizing
+	if types.IsFloat(srcType) && types.IsFloat(destType) {
+		srcFloat := srcType.(*types.FloatType)
+		destFloat := destType.(*types.FloatType)
+		
+		if destFloat.BitWidth > srcFloat.BitWidth {
+			return v.ctx.Builder.CreateFPExt(val, destType, "")
+		} else if destFloat.BitWidth < srcFloat.BitWidth {
+			return v.ctx.Builder.CreateFPTrunc(val, destType, "")
+		}
+		return val
+	}
+
+	// 7. Default Fallback (Bitcast)
+	// Useful for pointer casting (ptr<i8> -> ptr<i32>)
 	return v.ctx.Builder.CreateBitCast(val, destType, "")
 }
 
