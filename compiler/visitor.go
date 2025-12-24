@@ -344,41 +344,33 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 	}
 	
 	// Field Assignment (obj.field = val)
-	// This requires calculating the GEP for the field
 	if lhsCtx.DOT() != nil {
-		// Re-evaluating left side expression to get the pointer to the struct
-		// This is tricky because LeftHandSide grammar is recursive
-		// Simplification: Assume obj.field pattern
 		exprCtx := lhsCtx.Expression()
-		
-		// Evaluate base expression. 
-		// Important: If base is a variable (alloca), VisitExpression will load it.
-		// We need the pointer, not the value.
-		// This is a limitation of the current visitor structure.
-		// Workaround: We resolve the variable manually here.
-		
 		var basePtr ir.Value
 		
-		if exprCtx.PrimaryExpression() != nil && exprCtx.PrimaryExpression().IDENTIFIER() != nil {
-			name := exprCtx.PrimaryExpression().IDENTIFIER().GetText()
-			sym, ok := v.ctx.currentScope.Lookup(name)
-			if ok {
-				// sym.Value IS the alloca pointer for variables
-				basePtr = sym.Value
+		// Attempt to resolve the variable to get its address (L-Value) 
+		// instead of loading its value (R-Value).
+		exprText := exprCtx.GetText()
+		if sym, ok := v.ctx.currentScope.Lookup(exprText); ok {
+			if alloca, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
+				// Only use the alloca address if it is a Struct
+				// (If it's a pointer to struct, we want the loaded pointer value, handled by Visit below)
+				if _, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
+					basePtr = alloca
+				}
 			}
 		}
 		
 		if basePtr == nil {
-			// Fallback: evaluate and hope it's a pointer
+			// Fallback: This correctly handles pointers-to-structs (loading the pointer)
+			// and other complex expressions.
 			basePtr = v.Visit(exprCtx).(ir.Value)
 		}
 		
 		fieldName := lhsCtx.IDENTIFIER().GetText()
 		
-		// Dereference if it's a pointer to pointer (e.g. function arg passed by pointer)
+		// Check pointer type to find the struct definition
 		if ptrType, ok := basePtr.Type().(*types.PointerType); ok {
-			// If element is a pointer, we load it first? No, we need address of struct.
-			// If element is struct, basePtr is what we want.
 			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
 				fieldIdx := v.findFieldIndex(structType, fieldName)
 				if fieldIdx >= 0 {
@@ -390,7 +382,7 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 			}
 		}
 		
-		v.ctx.Diagnostics.Error("cannot assign to field (complex/unsupported lvalue)")
+		v.ctx.Diagnostics.Error("cannot assign to field (invalid struct pointer or unknown field)")
 		return nil
 	}
 
