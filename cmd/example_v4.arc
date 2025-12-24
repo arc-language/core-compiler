@@ -1,4 +1,4 @@
-// example_tcp.arc
+// example_v4.arc
 namespace main
 
 extern c {

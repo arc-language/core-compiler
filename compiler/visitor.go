@@ -102,6 +102,8 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitPrimaryExpression(ctx)
 	case *parser.LiteralContext:
 		return v.VisitLiteral(ctx)
+	case *parser.StructLiteralContext:
+		return v.VisitStructLiteral(ctx)
 	case *parser.CastExpressionContext:
 		return v.VisitCastExpression(ctx)
 	case *parser.AllocaExpressionContext:
@@ -202,13 +204,9 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 		entry := v.ctx.Builder.CreateBlock("entry")
 		v.ctx.SetInsertBlock(entry)
 		
-		// Define arguments in scope (as allocas for mutability)
 		for i, arg := range fn.Arguments {
-			// Allocate stack space for the argument
 			alloc := v.ctx.Builder.CreateAlloca(arg.Type(), paramNames[i] + ".addr")
-			// Store the argument value into the stack slot
 			v.ctx.Builder.CreateStore(arg, alloc)
-			// Define the symbol as the stack address
 			v.ctx.currentScope.Define(paramNames[i], alloc)
 		}
 		
@@ -228,11 +226,22 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 
 func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
+	
+	// Create field map
+	fieldMap := make(map[string]int)
 	fieldTypes := make([]types.Type, 0)
-	for _, field := range ctx.AllStructField() {
+	
+	for i, field := range ctx.AllStructField() {
+		fieldName := field.IDENTIFIER().GetText()
 		fieldType := v.resolveType(field.Type_())
+		
 		fieldTypes = append(fieldTypes, fieldType)
+		fieldMap[fieldName] = i
 	}
+	
+	// Register mapping in context
+	v.ctx.StructFieldIndices[name] = fieldMap
+
 	structType := types.NewStruct(name, fieldTypes, false)
 	v.ctx.RegisterType(name, structType)
 	return nil
@@ -283,11 +292,8 @@ func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface
 		initValue = v.getZeroValue(varType)
 	}
 
-	// Create alloca (stack allocation) for the variable
 	alloca := v.ctx.Builder.CreateAlloca(varType, name + ".addr")
-	// Store initial value
 	v.ctx.Builder.CreateStore(initValue, alloca)
-	// Define symbol as the alloca (pointer)
 	v.ctx.currentScope.Define(name, alloca)
 	
 	return nil
@@ -306,6 +312,8 @@ func (v *IRVisitor) VisitConstDecl(ctx *parser.ConstDeclContext) interface{} {
 
 func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) interface{} {
 	lhsCtx := ctx.LeftHandSide()
+	
+	// Variable Assignment
 	if lhsCtx.IDENTIFIER() != nil {
 		name := lhsCtx.IDENTIFIER().GetText()
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
@@ -319,22 +327,73 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 			return nil
 		}
 		
-		// If symbol is an alloca (variable), store to it
 		if ptr, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
 			v.ctx.Builder.CreateStore(rhs, ptr)
 			return nil
 		}
-
-		// Fallback (mostly for legacy/error cases where symbol isn't an alloca)
 		v.ctx.currentScope.Define(name, rhs)
 		return nil
 	}
+	
+	// Pointer Assignment (*ptr = val)
 	if lhsCtx.STAR() != nil {
 		ptr := v.Visit(lhsCtx.Expression()).(ir.Value)
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
 		v.ctx.Builder.CreateStore(rhs, ptr)
 		return nil
 	}
+	
+	// Field Assignment (obj.field = val)
+	// This requires calculating the GEP for the field
+	if lhsCtx.DOT() != nil {
+		// Re-evaluating left side expression to get the pointer to the struct
+		// This is tricky because LeftHandSide grammar is recursive
+		// Simplification: Assume obj.field pattern
+		exprCtx := lhsCtx.Expression()
+		
+		// Evaluate base expression. 
+		// Important: If base is a variable (alloca), VisitExpression will load it.
+		// We need the pointer, not the value.
+		// This is a limitation of the current visitor structure.
+		// Workaround: We resolve the variable manually here.
+		
+		var basePtr ir.Value
+		
+		if exprCtx.PrimaryExpression() != nil && exprCtx.PrimaryExpression().IDENTIFIER() != nil {
+			name := exprCtx.PrimaryExpression().IDENTIFIER().GetText()
+			sym, ok := v.ctx.currentScope.Lookup(name)
+			if ok {
+				// sym.Value IS the alloca pointer for variables
+				basePtr = sym.Value
+			}
+		}
+		
+		if basePtr == nil {
+			// Fallback: evaluate and hope it's a pointer
+			basePtr = v.Visit(exprCtx).(ir.Value)
+		}
+		
+		fieldName := lhsCtx.IDENTIFIER().GetText()
+		
+		// Dereference if it's a pointer to pointer (e.g. function arg passed by pointer)
+		if ptrType, ok := basePtr.Type().(*types.PointerType); ok {
+			// If element is a pointer, we load it first? No, we need address of struct.
+			// If element is struct, basePtr is what we want.
+			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
+				fieldIdx := v.findFieldIndex(structType, fieldName)
+				if fieldIdx >= 0 {
+					gep := v.ctx.Builder.CreateStructGEP(structType, basePtr, fieldIdx, "")
+					rhs := v.Visit(ctx.Expression()).(ir.Value)
+					v.ctx.Builder.CreateStore(rhs, gep)
+					return nil
+				}
+			}
+		}
+		
+		v.ctx.Diagnostics.Error("cannot assign to field (complex/unsupported lvalue)")
+		return nil
+	}
+
 	v.ctx.Diagnostics.Error("complex assignment not yet supported")
 	return nil
 }
@@ -384,21 +443,17 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	return nil
 }
 
-// VisitForStmt handles the 3 types of for loops
 func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
-	// Create a scope for loop variables
 	v.ctx.PushScope()
 	defer v.ctx.PopScope()
 
 	semicolons := ctx.AllSEMICOLON()
 	isClause := len(semicolons) == 2
 	
-	// If it's a clause loop, handle init immediately
 	if isClause {
 		if ctx.VariableDecl() != nil {
 			v.Visit(ctx.VariableDecl())
 		} else if len(ctx.AllAssignmentStmt()) > 0 {
-			// Check if the first assignment is before the first semicolon
 			firstAssign := ctx.AssignmentStmt(0)
 			semi1 := semicolons[0]
 			if v.isBefore(firstAssign, semi1) {
@@ -407,33 +462,21 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 		}
 	}
 
-	// Create blocks
 	condBlock := v.ctx.Builder.CreateBlock("loop.cond")
 	bodyBlock := v.ctx.Builder.CreateBlock("loop.body")
 	postBlock := v.ctx.Builder.CreateBlock("loop.post")
 	endBlock := v.ctx.Builder.CreateBlock("loop.end")
 
-	// Determine where 'continue' should jump to
-	// For Clause loops: continue -> Post -> Cond
-	// For While/Inf loops: continue -> Cond
 	continueTarget := condBlock
-	if isClause {
-		continueTarget = postBlock
-	}
+	if isClause { continueTarget = postBlock }
 
-	// Jump to condition check
 	v.ctx.Builder.CreateBr(condBlock)
-
-	// --- Condition Block ---
 	v.ctx.SetInsertBlock(condBlock)
 	
 	var cond ir.Value
 	if isClause {
-		// Expression between semicolons
-		// We have to scan expressions to find the one between the two semicolons
 		semi1 := semicolons[0]
 		semi2 := semicolons[1]
-		
 		found := false
 		for _, expr := range ctx.AllExpression() {
 			if v.isAfter(expr, semi1) && v.isBefore(expr, semi2) {
@@ -442,62 +485,39 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 				break
 			}
 		}
-		if !found {
-			cond = v.ctx.Builder.True() // Empty cond means infinite
-		}
+		if !found { cond = v.ctx.Builder.True() }
 	} else if ctx.Expression(0) != nil {
-		// While-style: for x < 10
 		cond = v.Visit(ctx.Expression(0)).(ir.Value)
 	} else {
-		// Infinite: for { }
 		cond = v.ctx.Builder.True()
 	}
 
 	v.ctx.Builder.CreateCondBr(cond, bodyBlock, endBlock)
-
-	// --- Body Block ---
 	v.ctx.SetInsertBlock(bodyBlock)
-	
-	// Push loop info for break/continue
 	v.ctx.PushLoop(continueTarget, endBlock)
-	
 	v.Visit(ctx.Block())
-	
 	v.ctx.PopLoop()
 
 	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
-		// If body falls through, jump to continue target
 		v.ctx.Builder.CreateBr(continueTarget)
 	}
 
-	// --- Post Block ---
 	v.ctx.SetInsertBlock(postBlock)
 	if isClause {
-		// Execute post statement
 		semi2 := semicolons[1]
-		
-		// Check assignments after 2nd semicolon
 		for _, assign := range ctx.AllAssignmentStmt() {
-			if v.isAfter(assign, semi2) {
-				v.Visit(assign)
-			}
+			if v.isAfter(assign, semi2) { v.Visit(assign) }
 		}
-		// Check expressions after 2nd semicolon (e.g. function calls)
 		for _, expr := range ctx.AllExpression() {
-			if v.isAfter(expr, semi2) {
-				v.Visit(expr)
-			}
+			if v.isAfter(expr, semi2) { v.Visit(expr) }
 		}
 	}
 	
-	// Post always jumps back to condition
 	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 		v.ctx.Builder.CreateBr(condBlock)
 	}
 
-	// --- End Block ---
 	v.ctx.SetInsertBlock(endBlock)
-
 	return nil
 }
 
@@ -544,7 +564,7 @@ func (v *IRVisitor) isAfter(ctx antlr.ParserRuleContext, token antlr.TerminalNod
 }
 
 // ============================================================================
-// EXPRESSIONS (Existing)
+// EXPRESSIONS
 // ============================================================================
 
 func (v *IRVisitor) VisitExpression(ctx *parser.ExpressionContext) interface{} {
@@ -671,7 +691,11 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 			v.ctx.Diagnostics.Error(fmt.Sprintf("function '%s' not found in namespace '%s'", fieldName, nsName))
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
+		
 		if ctx.LPAREN() == nil {
+			// Struct Field Access
+			
+			// Case 1: Pointer to struct (auto-dereference, standard for variables)
 			if ptrType, ok := base.Type().(*types.PointerType); ok {
 				if structType, ok := ptrType.ElementType.(*types.StructType); ok {
 					fieldIdx := v.findFieldIndex(structType, fieldName)
@@ -679,13 +703,27 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 						v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", fieldName))
 						return base
 					}
-					return v.ctx.Builder.CreateStructGEP(structType, base, fieldIdx, fieldName)
+					// Return value, not pointer, to stay consistent with other expressions
+					gep := v.ctx.Builder.CreateStructGEP(structType, base, fieldIdx, "")
+					return v.ctx.Builder.CreateLoad(structType.Fields[fieldIdx], gep, "")
 				}
 			}
-			v.ctx.Diagnostics.Error("field access requires struct pointer")
+			
+			// Case 2: Struct value (direct value)
+			if structType, ok := base.Type().(*types.StructType); ok {
+				fieldIdx := v.findFieldIndex(structType, fieldName)
+				if fieldIdx < 0 {
+					v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", fieldName))
+					return base
+				}
+				return v.ctx.Builder.CreateExtractValue(base, []int{fieldIdx}, "")
+			}
+			
+			v.ctx.Diagnostics.Error("field access requires struct or struct pointer")
 			return base
 		}
 	}
+	
 	if ctx.LPAREN() != nil {
 		var args []ir.Value
 		if ctx.ArgumentList() != nil {
@@ -710,7 +748,6 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 
-		// If symbol is an alloca (variable), load it
 		if ptr, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
 			ptrType := ptr.Type().(*types.PointerType)
 			return v.ctx.Builder.CreateLoad(ptrType.ElementType, ptr, "")
@@ -719,10 +756,44 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		return sym.Value
 	}
 	if ctx.Literal() != nil { return v.Visit(ctx.Literal()) }
+	if ctx.StructLiteral() != nil { return v.Visit(ctx.StructLiteral()) }
 	if ctx.Expression() != nil { return v.Visit(ctx.Expression()) }
 	if ctx.CastExpression() != nil { return v.Visit(ctx.CastExpression()) }
 	if ctx.AllocaExpression() != nil { return v.Visit(ctx.AllocaExpression()) }
 	return v.ctx.Builder.ConstInt(types.I64, 0)
+}
+
+func (v *IRVisitor) VisitStructLiteral(ctx *parser.StructLiteralContext) interface{} {
+	name := ctx.IDENTIFIER().GetText()
+	typ, ok := v.ctx.GetType(name)
+	if !ok {
+		v.ctx.Diagnostics.Error("unknown struct type: " + name)
+		return v.ctx.Builder.ConstInt(types.I64, 0)
+	}
+	structType, ok := typ.(*types.StructType)
+	if !ok {
+		v.ctx.Diagnostics.Error(name + " is not a struct type")
+		return v.ctx.Builder.ConstInt(types.I64, 0)
+	}
+
+	// Start with undefined/zero struct
+	var agg ir.Value = v.ctx.Builder.ConstZero(structType)
+
+	// Populate fields
+	for _, field := range ctx.AllFieldInit() {
+		fieldName := field.IDENTIFIER().GetText()
+		fieldVal := v.Visit(field.Expression()).(ir.Value)
+		
+		idx := v.findFieldIndex(structType, fieldName)
+		if idx < 0 {
+			v.ctx.Diagnostics.Error(fmt.Sprintf("struct %s has no field %s", name, fieldName))
+			continue
+		}
+		
+		agg = v.ctx.Builder.CreateInsertValue(agg, fieldVal, []int{idx}, "")
+	}
+	
+	return agg
 }
 
 func (v *IRVisitor) VisitLiteral(ctx *parser.LiteralContext) interface{} {
@@ -854,8 +925,13 @@ func (v *IRVisitor) getZeroValue(typ types.Type) ir.Value {
 }
 
 func (v *IRVisitor) findFieldIndex(structType *types.StructType, fieldName string) int {
-	v.ctx.Diagnostics.Warning(fmt.Sprintf("Cannot look up field '%s' by name - structs only store types.", fieldName))
-	return 0
+	if fieldIndices, ok := v.ctx.StructFieldIndices[structType.Name]; ok {
+		if idx, ok := fieldIndices[fieldName]; ok {
+			return idx
+		}
+	}
+	v.ctx.Diagnostics.Warning(fmt.Sprintf("Cannot look up field '%s' by name in struct %s.", fieldName, structType.Name))
+	return -1
 }
 
 func (v *IRVisitor) castValue(val ir.Value, targetType types.Type) ir.Value {

@@ -31,6 +31,9 @@ type Context struct {
 	// Type cache
 	namedTypes map[string]types.Type
 	
+	// Struct Field Mapping: StructName -> FieldName -> Index
+	StructFieldIndices map[string]map[string]int
+	
 	// Deferred statements stack (per function)
 	deferredStmts [][]ir.Instruction
 
@@ -44,13 +47,14 @@ func NewContext(moduleName string) *Context {
 	mod := b.CreateModule(moduleName)
 	
 	ctx := &Context{
-		Builder:     b,
-		Module:      mod,
-		Diagnostics: diagnostics.NewDiagnosticEngine(),
-		globalScope: NewScope(nil),
-		namedTypes:  make(map[string]types.Type),
-		deferredStmts: make([][]ir.Instruction, 0),
-		loopStack:     make([]LoopInfo, 0),
+		Builder:            b,
+		Module:             mod,
+		Diagnostics:        diagnostics.NewDiagnosticEngine(),
+		globalScope:        NewScope(nil),
+		namedTypes:         make(map[string]types.Type),
+		StructFieldIndices: make(map[string]map[string]int),
+		deferredStmts:      make([][]ir.Instruction, 0),
+		loopStack:          make([]LoopInfo, 0),
 	}
 	
 	ctx.currentScope = ctx.globalScope
