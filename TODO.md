@@ -8,5 +8,6 @@
  - 	"github.com/arc-language/io"
  - io.printf()
 
-4: linker and compiler
- - mainly replace gcc and read the .so files and patch offsets directly instead 
+4: linker
+ - 	"github.com/arc-language/core-linker"
+ -  mainly replace gcc and read the .so files and patch offsets directly instead 
