@@ -8,6 +8,12 @@ import (
 	"github.com/arc-language/core-compiler/diagnostics"
 )
 
+// LoopInfo holds the target blocks for control flow within a loop
+type LoopInfo struct {
+	ContinueBlock *ir.BasicBlock // Where 'continue' jumps to
+	BreakBlock    *ir.BasicBlock // Where 'break' jumps to
+}
+
 // Context holds the state during compilation
 type Context struct {
 	Builder     *builder.Builder
@@ -27,6 +33,9 @@ type Context struct {
 	
 	// Deferred statements stack (per function)
 	deferredStmts [][]ir.Instruction
+
+	// Loop stack for break/continue
+	loopStack []LoopInfo
 }
 
 // NewContext creates a new compilation context
@@ -41,6 +50,7 @@ func NewContext(moduleName string) *Context {
 		globalScope: NewScope(nil),
 		namedTypes:  make(map[string]types.Type),
 		deferredStmts: make([][]ir.Instruction, 0),
+		loopStack:     make([]LoopInfo, 0),
 	}
 	
 	ctx.currentScope = ctx.globalScope
@@ -76,7 +86,8 @@ func (c *Context) registerBuiltinTypes() {
 	c.namedTypes["int32"] = types.I32
 	c.namedTypes["int64"] = types.I64
 	c.namedTypes["int"] = types.I64 // Default int is 64-bit
-	
+	c.namedTypes["isize"] = types.I64 
+
 	// Unsigned integers
 	c.namedTypes["uint8"] = types.U8
 	c.namedTypes["uint16"] = types.U16
@@ -84,6 +95,7 @@ func (c *Context) registerBuiltinTypes() {
 	c.namedTypes["uint64"] = types.U64
 	c.namedTypes["uint"] = types.U64 // Default uint is 64-bit
 	c.namedTypes["byte"] = types.U8  // Alias for uint8
+	c.namedTypes["usize"] = types.U64 
 	
 	// Floating point
 	c.namedTypes["float32"] = types.F32
@@ -151,6 +163,8 @@ func (c *Context) ExitFunction() {
 	if len(c.deferredStmts) > 0 {
 		c.deferredStmts = c.deferredStmts[:len(c.deferredStmts)-1]
 	}
+	// Reset loop stack just in case
+	c.loopStack = c.loopStack[:0]
 }
 
 // SetInsertBlock sets the current basic block for instruction insertion
@@ -173,4 +187,26 @@ func (c *Context) GetDeferredStmts() []ir.Instruction {
 		return c.deferredStmts[len(c.deferredStmts)-1]
 	}
 	return nil
+}
+
+// --- Loop Management ---
+
+func (c *Context) PushLoop(cont, brk *ir.BasicBlock) {
+	c.loopStack = append(c.loopStack, LoopInfo{
+		ContinueBlock: cont,
+		BreakBlock:    brk,
+	})
+}
+
+func (c *Context) PopLoop() {
+	if len(c.loopStack) > 0 {
+		c.loopStack = c.loopStack[:len(c.loopStack)-1]
+	}
+}
+
+func (c *Context) CurrentLoop() *LoopInfo {
+	if len(c.loopStack) == 0 {
+		return nil
+	}
+	return &c.loopStack[len(c.loopStack)-1]
 }

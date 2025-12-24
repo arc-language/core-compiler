@@ -1,29 +1,36 @@
-// example_v4.arc
+// example_v3.arc
 namespace main
 
 extern io {
-    func printf(*byte, ...) int32
+    // puts and fputs are NOT variadic. They are safe to use.
+    func puts(*byte) int32
+    func fputs(*byte, *byte) int32
+    
     func fopen(*byte, *byte) *byte
     func fclose(*byte) int32
-    
-    // fputs is NOT variadic, so it is safer for now
-    func fputs(*byte, *byte) int32
 }
 
 func main() int32 {
-    let filename = "test.txt"
-    let file = io.fopen(filename, "w")
+    io.puts("Start: Opening file...")
 
-    // Check for NULL pointer (requires the cast fix above)
+    let filename = "test_output.txt"
+    let mode = "w"
+    
+    let file = io.fopen(filename, mode)
+
     if cast<int64>(file) == 0 {
-        io.printf("Error: Could not open file!\n")
+        io.puts("Error: fopen returned NULL!")
         return 1
     }
 
-    // Use fputs (arguments: string, file_pointer)
-    io.fputs("Hello from Arc (using fputs)!\n", file)
+    io.puts("File opened successfully.")
+    
+    // Write to file
+    io.fputs("Hello from Arc Language!\n", file)
+    io.fputs("This is a text file test.\n", file)
     
     io.fclose(file)
-    io.printf("Success writing to %s\n", filename)
+    io.puts("Done. Check test_output.txt")
+
     return 0
 }

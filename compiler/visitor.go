@@ -1,4 +1,4 @@
-// visitor_new.go
+// visitor.go
 package compiler
 
 import (
@@ -18,7 +18,6 @@ type IRVisitor struct {
 	ctx *Context
 
 	// Namespace tracking for externs
-	// map[namespaceName]map[funcName]*ir.Function
 	namespaces       map[string]map[string]*ir.Function
 	currentNamespace string
 }
@@ -50,8 +49,8 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitImportDecl(ctx)
 	case *parser.ExternDeclContext:
 		return v.VisitExternDecl(ctx)
-    case *parser.ExternMemberContext:
-        return v.VisitExternMember(ctx)
+	case *parser.ExternMemberContext:
+		return v.VisitExternMember(ctx)
 	case *parser.ExternFunctionDeclContext:
 		return v.VisitExternFunctionDecl(ctx)
 	case *parser.FunctionDeclContext:
@@ -72,6 +71,12 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitReturnStmt(ctx)
 	case *parser.IfStmtContext:
 		return v.VisitIfStmt(ctx)
+	case *parser.ForStmtContext:
+		return v.VisitForStmt(ctx)
+	case *parser.BreakStmtContext:
+		return v.VisitBreakStmt(ctx)
+	case *parser.ContinueStmtContext:
+		return v.VisitContinueStmt(ctx)
 	case *parser.DeferStmtContext:
 		return v.VisitDeferStmt(ctx)
 	case *parser.ExpressionStmtContext:
@@ -107,202 +112,98 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 	case *parser.LeftHandSideContext:
 		return v.VisitLeftHandSide(ctx)
 	default:
-		// For unhandled types, try the default visitor behavior
 		return v.BaseArcParserVisitor.Visit(tree)
 	}
 }
 
-// ============================================================================
-// COMPILATION UNIT
-// ============================================================================
+// ... [Existing Methods: VisitCompilationUnit, VisitTopLevelDecl, etc.] ...
 
 func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) interface{} {
-	// Visit namespace declarations
-	for _, ns := range ctx.AllNamespaceDecl() {
-		v.Visit(ns)
-	}
-
-	// Visit imports
-	for _, imp := range ctx.AllImportDecl() {
-		v.Visit(imp)
-	}
-
-	// Visit top-level declarations
-	for _, decl := range ctx.AllTopLevelDecl() {
-		v.Visit(decl)
-	}
-
+	for _, ns := range ctx.AllNamespaceDecl() { v.Visit(ns) }
+	for _, imp := range ctx.AllImportDecl() { v.Visit(imp) }
+	for _, decl := range ctx.AllTopLevelDecl() { v.Visit(decl) }
 	return nil
 }
 
-// VisitTopLevelDecl handles the intermediate TopLevelDecl node
 func (v *IRVisitor) VisitTopLevelDecl(ctx *parser.TopLevelDeclContext) interface{} {
-	if ctx.FunctionDecl() != nil {
-		return v.Visit(ctx.FunctionDecl())
-	}
-	if ctx.StructDecl() != nil {
-		return v.Visit(ctx.StructDecl())
-	}
-	if ctx.ExternDecl() != nil {
-		return v.Visit(ctx.ExternDecl())
-	}
-	if ctx.ConstDecl() != nil {
-		return v.Visit(ctx.ConstDecl())
-	}
-	if ctx.VariableDecl() != nil {
-		return v.Visit(ctx.VariableDecl())
-	}
+	if ctx.FunctionDecl() != nil { return v.Visit(ctx.FunctionDecl()) }
+	if ctx.StructDecl() != nil { return v.Visit(ctx.StructDecl()) }
+	if ctx.ExternDecl() != nil { return v.Visit(ctx.ExternDecl()) }
+	if ctx.ConstDecl() != nil { return v.Visit(ctx.ConstDecl()) }
+	if ctx.VariableDecl() != nil { return v.Visit(ctx.VariableDecl()) }
 	return nil
 }
 
-func (v *IRVisitor) VisitNamespaceDecl(ctx *parser.NamespaceDeclContext) interface{} {
-	return nil
-}
-
-func (v *IRVisitor) VisitImportDecl(ctx *parser.ImportDeclContext) interface{} {
-	return nil
-}
-
-// ============================================================================
-// EXTERN DECLARATIONS
-// ============================================================================
+func (v *IRVisitor) VisitNamespaceDecl(ctx *parser.NamespaceDeclContext) interface{} { return nil }
+func (v *IRVisitor) VisitImportDecl(ctx *parser.ImportDeclContext) interface{} { return nil }
 
 func (v *IRVisitor) VisitExternDecl(ctx *parser.ExternDeclContext) interface{} {
 	oldNamespace := v.currentNamespace
-	
-	// Handle named extern blocks (e.g. "extern io { ... }")
 	if ctx.IDENTIFIER() != nil {
 		nsName := ctx.IDENTIFIER().GetText()
 		v.currentNamespace = nsName
-		
-		// Initialize the map for this namespace
 		if _, exists := v.namespaces[nsName]; !exists {
 			v.namespaces[nsName] = make(map[string]*ir.Function)
 		}
-
-		// Define the namespace in scope so we can find it later
-		// We use a dummy Global with a special prefix to identify it as a namespace
 		dummyGlobal := &ir.Global{}
 		dummyGlobal.SetName("namespace:" + nsName)
 		v.ctx.currentScope.Define(nsName, dummyGlobal)
 	}
-
-	// Visit all extern members
-	for _, member := range ctx.AllExternMember() {
-		v.Visit(member)
-	}
-
+	for _, member := range ctx.AllExternMember() { v.Visit(member) }
 	v.currentNamespace = oldNamespace
 	return nil
 }
 
 func (v *IRVisitor) VisitExternMember(ctx *parser.ExternMemberContext) interface{} {
-	if ctx.ExternFunctionDecl() != nil {
-		return v.Visit(ctx.ExternFunctionDecl())
-	}
+	if ctx.ExternFunctionDecl() != nil { return v.Visit(ctx.ExternFunctionDecl()) }
 	return nil
 }
 
 func (v *IRVisitor) VisitExternFunctionDecl(ctx *parser.ExternFunctionDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
-
-	// Get return type
 	var retType types.Type = types.Void
-	if ctx.Type_() != nil {
-		retType = v.resolveType(ctx.Type_())
-	}
-
-	// Get parameters
+	if ctx.Type_() != nil { retType = v.resolveType(ctx.Type_()) }
 	paramTypes := make([]types.Type, 0)
 	variadic := false
-
 	if ctx.ExternParameterList() != nil {
 		paramCtx := ctx.ExternParameterList()
-
-		// Check for variadic
-		if paramCtx.ELLIPSIS() != nil {
-			variadic = true
-		}
-
-		// Get parameter types
+		if paramCtx.ELLIPSIS() != nil { variadic = true }
 		for _, typeCtx := range paramCtx.AllType_() {
 			paramTypes = append(paramTypes, v.resolveType(typeCtx))
 		}
 	}
-
-	// Declare external function in the module
-	// IMPORTANT: We declare it with the *real* name (e.g., "printf") 
-	// so the linker can find it.
 	fn := v.ctx.Builder.DeclareFunction(name, retType, paramTypes, variadic)
-
-	// If we are inside an extern namespace (e.g. "io"), register it there
 	if v.currentNamespace != "" {
 		v.namespaces[v.currentNamespace][name] = fn
 	} else {
-		// Otherwise, it's global scope
-		// (DeclareFunction already adds it to module, but we might want it in scope too)
 		v.ctx.currentScope.Define(name, fn)
 	}
-
 	return nil
 }
 
-// ============================================================================
-// FUNCTION DECLARATIONS
-// ============================================================================
-
 func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
-
-	// Get return type
 	var retType types.Type = types.Void
-	if ctx.Type_() != nil {
-		retType = v.resolveType(ctx.Type_())
-	}
-
-	// Get parameters
+	if ctx.Type_() != nil { retType = v.resolveType(ctx.Type_()) }
 	paramTypes := make([]types.Type, 0)
 	paramNames := make([]string, 0)
 	variadic := false
-
 	if ctx.ParameterList() != nil {
 		paramCtx := ctx.ParameterList()
-
-		if paramCtx.ELLIPSIS() != nil {
-			variadic = true
-		}
-
+		if paramCtx.ELLIPSIS() != nil { variadic = true }
 		for _, param := range paramCtx.AllParameter() {
 			paramNames = append(paramNames, param.IDENTIFIER().GetText())
 			paramTypes = append(paramTypes, v.resolveType(param.Type_()))
 		}
 	}
-
-	// Create function
 	fn := v.ctx.Builder.CreateFunction(name, retType, paramTypes, variadic)
-
-	// Set parameter names
-	for i, paramName := range paramNames {
-		fn.Arguments[i].SetName(paramName)
-	}
-
-	// Enter function context
+	for i, paramName := range paramNames { fn.Arguments[i].SetName(paramName) }
 	v.ctx.EnterFunction(fn)
-
-	// Visit function body
 	if ctx.Block() != nil {
 		entry := v.ctx.Builder.CreateBlock("entry")
 		v.ctx.SetInsertBlock(entry)
-
-		// Define arguments in scope
-		// In SSA, arguments are values themselves
-		for i, arg := range fn.Arguments {
-			v.ctx.currentScope.Define(paramNames[i], arg)
-		}
-
+		for i, arg := range fn.Arguments { v.ctx.currentScope.Define(paramNames[i], arg) }
 		v.Visit(ctx.Block())
-
-		// Ensure block is terminated
 		if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 			if retType.Kind() == types.VoidKind {
 				v.ctx.Builder.CreateRetVoid()
@@ -312,33 +213,19 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 			}
 		}
 	}
-
 	v.ctx.ExitFunction()
-
 	return nil
 }
 
-// ============================================================================
-// STRUCT DECLARATIONS
-// ============================================================================
-
 func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
-
-	// Get fields
 	fieldTypes := make([]types.Type, 0)
-
 	for _, field := range ctx.AllStructField() {
 		fieldType := v.resolveType(field.Type_())
 		fieldTypes = append(fieldTypes, fieldType)
 	}
-
-	// Create struct type
 	structType := types.NewStruct(name, fieldTypes, false)
-
-	// Register type
 	v.ctx.RegisterType(name, structType)
-
 	return nil
 }
 
@@ -347,62 +234,38 @@ func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 // ============================================================================
 
 func (v *IRVisitor) VisitStatement(ctx *parser.StatementContext) interface{} {
-	if ctx.VariableDecl() != nil {
-		return v.Visit(ctx.VariableDecl())
-	}
-	if ctx.ConstDecl() != nil {
-		return v.Visit(ctx.ConstDecl())
-	}
-	if ctx.AssignmentStmt() != nil {
-		return v.Visit(ctx.AssignmentStmt())
-	}
-	if ctx.ReturnStmt() != nil {
-		return v.Visit(ctx.ReturnStmt())
-	}
-	if ctx.IfStmt() != nil {
-		return v.Visit(ctx.IfStmt())
-	}
-	if ctx.DeferStmt() != nil {
-		return v.Visit(ctx.DeferStmt())
-	}
-	if ctx.ExpressionStmt() != nil {
-		return v.Visit(ctx.ExpressionStmt())
-	}
-	if ctx.Block() != nil {
-		return v.Visit(ctx.Block())
-	}
+	if ctx.VariableDecl() != nil { return v.Visit(ctx.VariableDecl()) }
+	if ctx.ConstDecl() != nil { return v.Visit(ctx.ConstDecl()) }
+	if ctx.AssignmentStmt() != nil { return v.Visit(ctx.AssignmentStmt()) }
+	if ctx.ReturnStmt() != nil { return v.Visit(ctx.ReturnStmt()) }
+	if ctx.IfStmt() != nil { return v.Visit(ctx.IfStmt()) }
+	if ctx.ForStmt() != nil { return v.Visit(ctx.ForStmt()) }
+	if ctx.BreakStmt() != nil { return v.Visit(ctx.BreakStmt()) }
+	if ctx.ContinueStmt() != nil { return v.Visit(ctx.ContinueStmt()) }
+	if ctx.DeferStmt() != nil { return v.Visit(ctx.DeferStmt()) }
+	if ctx.ExpressionStmt() != nil { return v.Visit(ctx.ExpressionStmt()) }
+	if ctx.Block() != nil { return v.Visit(ctx.Block()) }
 	return nil
 }
 
 func (v *IRVisitor) VisitBlock(ctx *parser.BlockContext) interface{} {
 	v.ctx.PushScope()
-
 	for _, stmt := range ctx.AllStatement() {
 		v.Visit(stmt)
-		if v.ctx.currentBlock != nil && v.ctx.currentBlock.Terminator() != nil {
-			break
-		}
+		if v.ctx.currentBlock != nil && v.ctx.currentBlock.Terminator() != nil { break }
 	}
-
 	v.ctx.PopScope()
 	return nil
 }
 
 func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
-
 	var varType types.Type
-	if ctx.Type_() != nil {
-		varType = v.resolveType(ctx.Type_())
-	}
-
+	if ctx.Type_() != nil { varType = v.resolveType(ctx.Type_()) }
 	var initValue ir.Value
 	if ctx.Expression() != nil {
 		initValue = v.Visit(ctx.Expression()).(ir.Value)
-
-		if varType == nil {
-			varType = initValue.Type()
-		}
+		if varType == nil { varType = initValue.Type() }
 	} else {
 		if varType == nil {
 			v.ctx.Diagnostics.Error(fmt.Sprintf("variable '%s' needs type annotation or initializer", name))
@@ -410,35 +273,26 @@ func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface
 		}
 		initValue = v.getZeroValue(varType)
 	}
-
-	// SSA: Store value directly in symbol table
 	v.ctx.currentScope.Define(name, initValue)
-
 	return nil
 }
 
 func (v *IRVisitor) VisitConstDecl(ctx *parser.ConstDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
-
 	if ctx.Expression() == nil {
 		v.ctx.Diagnostics.Error(fmt.Sprintf("constant '%s' must have an initializer", name))
 		return nil
 	}
-
 	initValue := v.Visit(ctx.Expression()).(ir.Value)
 	v.ctx.currentScope.DefineConst(name, initValue)
-
 	return nil
 }
 
 func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) interface{} {
 	lhsCtx := ctx.LeftHandSide()
-	
-	// Variable reassignment (SSA Shadowing)
 	if lhsCtx.IDENTIFIER() != nil {
 		name := lhsCtx.IDENTIFIER().GetText()
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
-
 		sym, ok := v.ctx.currentScope.Lookup(name)
 		if !ok {
 			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
@@ -448,105 +302,203 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 			v.ctx.Diagnostics.Error(fmt.Sprintf("cannot assign to constant '%s'", name))
 			return nil
 		}
-
 		v.ctx.currentScope.Define(name, rhs)
 		return nil
 	}
-
-	// Pointer/Memory assignment (*ptr = val)
 	if lhsCtx.STAR() != nil {
 		ptr := v.Visit(lhsCtx.Expression()).(ir.Value)
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
 		v.ctx.Builder.CreateStore(rhs, ptr)
 		return nil
 	}
-
 	v.ctx.Diagnostics.Error("complex assignment not yet supported")
 	return nil
 }
 
 func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 	deferred := v.ctx.GetDeferredStmts()
-	for i := len(deferred) - 1; i >= 0; i-- {
-		_ = deferred[i]
-	}
-
+	for i := len(deferred) - 1; i >= 0; i-- { _ = deferred[i] }
 	if ctx.Expression() != nil {
 		retVal := v.Visit(ctx.Expression()).(ir.Value)
-		
-		// Implicit Cast: Check function return type
-		// FIX: Use 'currentFunction' (lowercase) instead of 'CurrentFunction'
 		if v.ctx.currentFunction != nil {
 			expectedType := v.ctx.currentFunction.FuncType.ReturnType
 			if !retVal.Type().Equal(expectedType) {
 				retVal = v.castValue(retVal, expectedType)
 			}
 		}
-
 		v.ctx.Builder.CreateRet(retVal)
 	} else {
 		v.ctx.Builder.CreateRetVoid()
 	}
-
 	return nil
 }
 
 func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	mergeBlock := v.ctx.Builder.CreateBlock("if.end")
-	
-	// Setup chain
 	cond := v.Visit(ctx.Expression(0)).(ir.Value)
 	thenBlock := v.ctx.Builder.CreateBlock("if.then")
 	nextCheckBlock := v.ctx.Builder.CreateBlock("if.next")
-	
 	v.ctx.Builder.CreateCondBr(cond, thenBlock, nextCheckBlock)
-	
-	// 1. Generate First THEN
 	v.ctx.SetInsertBlock(thenBlock)
 	v.Visit(ctx.Block(0))
-	if thenBlock.Terminator() == nil {
-		v.ctx.Builder.CreateBr(mergeBlock)
-	}
-	
-	// 2. Iterate ELSE IFs
+	if thenBlock.Terminator() == nil { v.ctx.Builder.CreateBr(mergeBlock) }
 	v.ctx.SetInsertBlock(nextCheckBlock)
 	count := len(ctx.AllIF())
-	
 	for i := 1; i < count; i++ {
 		cond := v.Visit(ctx.Expression(i)).(ir.Value)
-		
 		thenBlock := v.ctx.Builder.CreateBlock("elseif.then")
 		newNextBlock := v.ctx.Builder.CreateBlock("elseif.next")
-		
 		v.ctx.Builder.CreateCondBr(cond, thenBlock, newNextBlock)
-		
 		v.ctx.SetInsertBlock(thenBlock)
 		v.Visit(ctx.Block(i))
-		if thenBlock.Terminator() == nil {
-			v.ctx.Builder.CreateBr(mergeBlock)
-		}
-		
+		if thenBlock.Terminator() == nil { v.ctx.Builder.CreateBr(mergeBlock) }
 		v.ctx.SetInsertBlock(newNextBlock)
 	}
-	
-	// 3. Handle Final ELSE
-	if len(ctx.AllBlock()) > count {
-		v.Visit(ctx.Block(count))
-	}
-	
-	// Jump to merge if not terminated
-	if v.ctx.currentBlock.Terminator() == nil {
-		v.ctx.Builder.CreateBr(mergeBlock)
-	}
-	
+	if len(ctx.AllBlock()) > count { v.Visit(ctx.Block(count)) }
+	if v.ctx.currentBlock.Terminator() == nil { v.ctx.Builder.CreateBr(mergeBlock) }
 	v.ctx.SetInsertBlock(mergeBlock)
 	return nil
 }
 
-func (v *IRVisitor) VisitDeferStmt(ctx *parser.DeferStmtContext) interface{} {
-	if ctx.Expression() != nil {
-		_ = v.Visit(ctx.Expression())
+// VisitForStmt handles the 3 types of for loops
+func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
+	// Create a scope for loop variables
+	v.ctx.PushScope()
+	defer v.ctx.PopScope()
+
+	semicolons := ctx.AllSEMICOLON()
+	isClause := len(semicolons) == 2
+	
+	// If it's a clause loop, handle init immediately
+	if isClause {
+		if ctx.VariableDecl() != nil {
+			v.Visit(ctx.VariableDecl())
+		} else if len(ctx.AllAssignmentStmt()) > 0 {
+			// Check if the first assignment is before the first semicolon
+			firstAssign := ctx.AssignmentStmt(0)
+			semi1 := semicolons[0]
+			if v.isBefore(firstAssign, semi1) {
+				v.Visit(firstAssign)
+			}
+		}
 	}
+
+	// Create blocks
+	condBlock := v.ctx.Builder.CreateBlock("loop.cond")
+	bodyBlock := v.ctx.Builder.CreateBlock("loop.body")
+	postBlock := v.ctx.Builder.CreateBlock("loop.post")
+	endBlock := v.ctx.Builder.CreateBlock("loop.end")
+
+	// Determine where 'continue' should jump to
+	// For Clause loops: continue -> Post -> Cond
+	// For While/Inf loops: continue -> Cond
+	continueTarget := condBlock
+	if isClause {
+		continueTarget = postBlock
+	}
+
+	// Jump to condition check
+	v.ctx.Builder.CreateBr(condBlock)
+
+	// --- Condition Block ---
+	v.ctx.SetInsertBlock(condBlock)
+	
+	var cond ir.Value
+	if isClause {
+		// Expression between semicolons
+		// We have to scan expressions to find the one between the two semicolons
+		semi1 := semicolons[0]
+		semi2 := semicolons[1]
+		
+		found := false
+		for _, expr := range ctx.AllExpression() {
+			if v.isAfter(expr, semi1) && v.isBefore(expr, semi2) {
+				cond = v.Visit(expr).(ir.Value)
+				found = true
+				break
+			}
+		}
+		if !found {
+			cond = v.ctx.Builder.True() // Empty cond means infinite
+		}
+	} else if ctx.Expression(0) != nil {
+		// While-style: for x < 10
+		cond = v.Visit(ctx.Expression(0)).(ir.Value)
+	} else {
+		// Infinite: for { }
+		cond = v.ctx.Builder.True()
+	}
+
+	v.ctx.Builder.CreateCondBr(cond, bodyBlock, endBlock)
+
+	// --- Body Block ---
+	v.ctx.SetInsertBlock(bodyBlock)
+	
+	// Push loop info for break/continue
+	v.ctx.PushLoop(continueTarget, endBlock)
+	
+	v.Visit(ctx.Block())
+	
+	v.ctx.PopLoop()
+
+	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
+		// If body falls through, jump to continue target
+		v.ctx.Builder.CreateBr(continueTarget)
+	}
+
+	// --- Post Block ---
+	v.ctx.SetInsertBlock(postBlock)
+	if isClause {
+		// Execute post statement
+		semi2 := semicolons[1]
+		
+		// Check assignments after 2nd semicolon
+		for _, assign := range ctx.AllAssignmentStmt() {
+			if v.isAfter(assign, semi2) {
+				v.Visit(assign)
+			}
+		}
+		// Check expressions after 2nd semicolon (e.g. function calls)
+		for _, expr := range ctx.AllExpression() {
+			if v.isAfter(expr, semi2) {
+				v.Visit(expr)
+			}
+		}
+	}
+	
+	// Post always jumps back to condition
+	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
+		v.ctx.Builder.CreateBr(condBlock)
+	}
+
+	// --- End Block ---
+	v.ctx.SetInsertBlock(endBlock)
+
+	return nil
+}
+
+func (v *IRVisitor) VisitBreakStmt(ctx *parser.BreakStmtContext) interface{} {
+	loop := v.ctx.CurrentLoop()
+	if loop == nil {
+		v.ctx.Diagnostics.Error("break statement outside of loop")
+		return nil
+	}
+	v.ctx.Builder.CreateBr(loop.BreakBlock)
+	return nil
+}
+
+func (v *IRVisitor) VisitContinueStmt(ctx *parser.ContinueStmtContext) interface{} {
+	loop := v.ctx.CurrentLoop()
+	if loop == nil {
+		v.ctx.Diagnostics.Error("continue statement outside of loop")
+		return nil
+	}
+	v.ctx.Builder.CreateBr(loop.ContinueBlock)
+	return nil
+}
+
+func (v *IRVisitor) VisitDeferStmt(ctx *parser.DeferStmtContext) interface{} {
+	if ctx.Expression() != nil { _ = v.Visit(ctx.Expression()) }
 	v.ctx.Diagnostics.Warning("defer statement is not fully implemented yet")
 	return nil
 }
@@ -556,8 +508,19 @@ func (v *IRVisitor) VisitExpressionStmt(ctx *parser.ExpressionStmtContext) inter
 	return nil
 }
 
+// Helpers for token ordering
+func (v *IRVisitor) isBefore(ctx antlr.ParserRuleContext, token antlr.TerminalNode) bool {
+	if ctx == nil || token == nil { return false }
+	return ctx.GetStop().GetTokenIndex() < token.GetSymbol().GetTokenIndex()
+}
+
+func (v *IRVisitor) isAfter(ctx antlr.ParserRuleContext, token antlr.TerminalNode) bool {
+	if ctx == nil || token == nil { return false }
+	return ctx.GetStart().GetTokenIndex() > token.GetSymbol().GetTokenIndex()
+}
+
 // ============================================================================
-// EXPRESSIONS
+// EXPRESSIONS (Existing)
 // ============================================================================
 
 func (v *IRVisitor) VisitExpression(ctx *parser.ExpressionContext) interface{} {
@@ -660,9 +623,6 @@ func (v *IRVisitor) VisitUnaryExpression(ctx *parser.UnaryExpressionContext) int
 		return v.ctx.Builder.CreateLoad(ptrType.ElementType, ptr, "")
 	}
 	if ctx.AMP() != nil {
-		// SSA: Can only take address if explicitly allocated (like alloca)
-		// For now, this is tricky in pure SSA without alloca. 
-		// We fallback to standard visit which might error if it's not a pointer-backed value.
 		return v.Visit(ctx.UnaryExpression()) 
 	}
 	return v.Visit(ctx.PostfixExpression())
@@ -679,23 +639,15 @@ func (v *IRVisitor) VisitPostfixExpression(ctx *parser.PostfixExpressionContext)
 func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) ir.Value {
 	if ctx.DOT() != nil && ctx.IDENTIFIER() != nil {
 		fieldName := ctx.IDENTIFIER().GetText()
-
-		// 1. Namespace Lookup (io.printf)
 		if global, ok := base.(*ir.Global); ok && strings.HasPrefix(global.Name(), "namespace:") {
 			nsName := strings.TrimPrefix(global.Name(), "namespace:")
-			
 			if funcs, ok := v.namespaces[nsName]; ok {
-				if fn, ok := funcs[fieldName]; ok {
-					return fn
-				}
+				if fn, ok := funcs[fieldName]; ok { return fn }
 			}
 			v.ctx.Diagnostics.Error(fmt.Sprintf("function '%s' not found in namespace '%s'", fieldName, nsName))
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
-
-		// 2. Struct Field Access
 		if ctx.LPAREN() == nil {
-			// Needs pointer to struct
 			if ptrType, ok := base.Type().(*types.PointerType); ok {
 				if structType, ok := ptrType.ElementType.(*types.StructType); ok {
 					fieldIdx := v.findFieldIndex(structType, fieldName)
@@ -710,60 +662,35 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 			return base
 		}
 	}
-
-	// Function Call
 	if ctx.LPAREN() != nil {
 		var args []ir.Value
 		if ctx.ArgumentList() != nil {
 			args = v.Visit(ctx.ArgumentList()).([]ir.Value)
 		}
-
 		if fn, ok := base.(*ir.Function); ok {
 			return v.ctx.Builder.CreateCall(fn, args, "")
 		}
 		v.ctx.Diagnostics.Error("cannot call non-function")
 		return base
 	}
-
 	return base
 }
 
 func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext) interface{} {
 	if ctx.IDENTIFIER() != nil {
 		name := ctx.IDENTIFIER().GetText()
-		
 		sym, ok := v.ctx.currentScope.Lookup(name)
 		if !ok {
-			// Check global functions
-			if fn := v.ctx.Module.GetFunction(name); fn != nil {
-				return fn
-			}
+			if fn := v.ctx.Module.GetFunction(name); fn != nil { return fn }
 			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
-		
-		// If variable is an explicitly allocated pointer, load it
-		// (Unless we are in a context that wants the address, handled elsewhere)
-		// But in SSA visitor, we usually store Values directly. 
-		// Only 'var' with explicit addressable requirements (like array) uses pointers.
-		// For now, assume Values are SSA unless Type is PointerType AND name matches alloca logic.
-		// Actually, in this visitor, we just return the value stored in scope.
-		
 		return sym.Value
 	}
-
-	if ctx.Literal() != nil {
-		return v.Visit(ctx.Literal())
-	}
-	if ctx.Expression() != nil {
-		return v.Visit(ctx.Expression())
-	}
-	if ctx.CastExpression() != nil {
-		return v.Visit(ctx.CastExpression())
-	}
-	if ctx.AllocaExpression() != nil {
-		return v.Visit(ctx.AllocaExpression())
-	}
+	if ctx.Literal() != nil { return v.Visit(ctx.Literal()) }
+	if ctx.Expression() != nil { return v.Visit(ctx.Expression()) }
+	if ctx.CastExpression() != nil { return v.Visit(ctx.CastExpression()) }
+	if ctx.AllocaExpression() != nil { return v.Visit(ctx.AllocaExpression()) }
 	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 
@@ -773,140 +700,71 @@ func (v *IRVisitor) VisitLiteral(ctx *parser.LiteralContext) interface{} {
 		val, _ := strconv.ParseInt(text, 0, 64)
 		return v.ctx.Builder.ConstInt(types.I64, val)
 	}
-
 	if ctx.FLOAT_LITERAL() != nil {
 		text := ctx.FLOAT_LITERAL().GetText()
 		val, _ := strconv.ParseFloat(text, 64)
 		return v.ctx.Builder.ConstFloat(types.F64, val)
 	}
-
 	if ctx.BOOLEAN_LITERAL() != nil {
-		if ctx.BOOLEAN_LITERAL().GetText() == "true" {
-			return v.ctx.Builder.True()
-		}
+		if ctx.BOOLEAN_LITERAL().GetText() == "true" { return v.ctx.Builder.True() }
 		return v.ctx.Builder.False()
 	}
-
-	// IMPLEMENTATION OF STRING LITERALS
 	if ctx.STRING_LITERAL() != nil {
 		rawText := ctx.STRING_LITERAL().GetText()
-		
-		// Unquote the string (converts "\n" to actual newline, etc.)
 		content, err := strconv.Unquote(rawText)
 		if err != nil {
-			// Fallback if parsing fails (shouldn't happen with valid tokens)
-			if len(rawText) >= 2 {
-				content = rawText[1 : len(rawText)-1]
-			} else {
-				content = rawText
-			}
+			if len(rawText) >= 2 { content = rawText[1 : len(rawText)-1] } else { content = rawText }
 		}
-
-		// Append NULL terminator (C-style strings required for printf)
 		bytes := append([]byte(content), 0)
-
-		// Create IR constants for the array elements
 		elements := make([]ir.Constant, len(bytes))
-		for i, b := range bytes {
-			elements[i] = v.ctx.Builder.ConstInt(types.I8, int64(b))
-		}
-
-		// Create the array type: [N x i8]
+		for i, b := range bytes { elements[i] = v.ctx.Builder.ConstInt(types.I8, int64(b)) }
 		arrType := types.NewArray(types.I8, int64(len(bytes)))
-
-		// Create the constant array value
-		constArr := &ir.ConstantArray{
-			BaseValue: ir.BaseValue{ValType: arrType},
-			Elements:  elements,
-		}
-
-		// Create a global constant to hold the string bytes
-		// Name it .str.N to avoid collisions
+		constArr := &ir.ConstantArray{BaseValue: ir.BaseValue{ValType: arrType}, Elements: elements}
 		strName := fmt.Sprintf(".str.%d", len(v.ctx.Module.Globals))
 		global := v.ctx.Builder.CreateGlobalConstant(strName, constArr)
-
-		// Decay the array to a pointer (i8*) using GEP
-		// This converts [N x i8]* -> i8* which printf expects (*byte)
 		zero := v.ctx.Builder.ConstInt(types.I32, 0)
-		gep := v.ctx.Builder.CreateInBoundsGEP(
-			arrType,
-			global,
-			[]ir.Value{zero, zero},
-			"",
-		)
-
-		return gep
+		return v.ctx.Builder.CreateInBoundsGEP(arrType, global, []ir.Value{zero, zero}, "")
 	}
-
 	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 
 func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) interface{} {
-	// 1. Evaluate the expression being cast
 	val := v.Visit(ctx.Expression()).(ir.Value)
-	
-	// 2. Resolve the target type
 	destType := v.resolveType(ctx.Type_())
 	srcType := val.Type()
-
-	// 3. Pointer <-> Integer Casting (Required for NULL checks like 'file == 0')
 	if types.IsPointer(srcType) && types.IsInteger(destType) {
 		return v.ctx.Builder.CreatePtrToInt(val, destType, "")
 	}
 	if types.IsInteger(srcType) && types.IsPointer(destType) {
 		return v.ctx.Builder.CreateIntToPtr(val, destType, "")
 	}
-
-	// 4. Integer Resizing (Truncate / Extend)
 	if types.IsInteger(srcType) && types.IsInteger(destType) {
 		srcInt := srcType.(*types.IntType)
 		destInt := destType.(*types.IntType)
-
 		if destInt.BitWidth > srcInt.BitWidth {
-			if srcInt.Signed {
-				return v.ctx.Builder.CreateSExt(val, destType, "")
-			}
+			if srcInt.Signed { return v.ctx.Builder.CreateSExt(val, destType, "") }
 			return v.ctx.Builder.CreateZExt(val, destType, "")
 		} else if destInt.BitWidth < srcInt.BitWidth {
 			return v.ctx.Builder.CreateTrunc(val, destType, "")
 		}
-		// BitWidths are equal, no-op or bitcast
-		if srcInt.Signed != destInt.Signed {
-			return v.ctx.Builder.CreateBitCast(val, destType, "")
-		}
+		if srcInt.Signed != destInt.Signed { return v.ctx.Builder.CreateBitCast(val, destType, "") }
 		return val
 	}
-
-	// 5. Integer <-> Float Conversions
 	if types.IsInteger(srcType) && types.IsFloat(destType) {
-		if srcType.(*types.IntType).Signed {
-			return v.ctx.Builder.CreateSIToFP(val, destType, "")
-		}
+		if srcType.(*types.IntType).Signed { return v.ctx.Builder.CreateSIToFP(val, destType, "") }
 		return v.ctx.Builder.CreateUIToFP(val, destType, "")
 	}
-
 	if types.IsFloat(srcType) && types.IsInteger(destType) {
-		if destType.(*types.IntType).Signed {
-			return v.ctx.Builder.CreateFPToSI(val, destType, "")
-		}
+		if destType.(*types.IntType).Signed { return v.ctx.Builder.CreateFPToSI(val, destType, "") }
 		return v.ctx.Builder.CreateFPToUI(val, destType, "")
 	}
-
-	// 6. Float Resizing
 	if types.IsFloat(srcType) && types.IsFloat(destType) {
 		srcFloat := srcType.(*types.FloatType)
 		destFloat := destType.(*types.FloatType)
-		
-		if destFloat.BitWidth > srcFloat.BitWidth {
-			return v.ctx.Builder.CreateFPExt(val, destType, "")
-		} else if destFloat.BitWidth < srcFloat.BitWidth {
-			return v.ctx.Builder.CreateFPTrunc(val, destType, "")
-		}
+		if destFloat.BitWidth > srcFloat.BitWidth { return v.ctx.Builder.CreateFPExt(val, destType, "") }
+		if destFloat.BitWidth < srcFloat.BitWidth { return v.ctx.Builder.CreateFPTrunc(val, destType, "") }
 		return val
 	}
-
-	// 7. Default Fallback (Bitcast)
-	// Useful for pointer casting (ptr<i8> -> ptr<i32>)
 	return v.ctx.Builder.CreateBitCast(val, destType, "")
 }
 
@@ -921,108 +779,64 @@ func (v *IRVisitor) VisitAllocaExpression(ctx *parser.AllocaExpressionContext) i
 
 func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface{} {
 	args := make([]ir.Value, 0)
-	for _, expr := range ctx.AllExpression() {
-		args = append(args, v.Visit(expr).(ir.Value))
-	}
+	for _, expr := range ctx.AllExpression() { args = append(args, v.Visit(expr).(ir.Value)) }
 	return args
 }
 
 func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface{} {
-	// Not used in SSA assignment path, but good for pointer math
 	if ctx.IDENTIFIER() != nil {
 		name := ctx.IDENTIFIER().GetText()
 		sym, ok := v.ctx.currentScope.Lookup(name)
-		if ok {
-			return sym.Value
-		}
+		if ok { return sym.Value }
 	}
-	if ctx.STAR() != nil {
-		return v.Visit(ctx.Expression())
-	}
+	if ctx.STAR() != nil { return v.Visit(ctx.Expression()) }
 	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
 func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
-	if ctx == nil {
-		return types.Void
-	}
+	if ctx == nil { return types.Void }
 	typeCtx := ctx.(*parser.TypeContext)
-
 	if typeCtx.PrimitiveType() != nil {
 		name := typeCtx.PrimitiveType().GetText()
-		if typ, ok := v.ctx.GetType(name); ok {
-			return typ
-		}
-		// Fallback for default int/float names if not in Context
-		switch name {
-		case "int": return types.I32
-		case "int32": return types.I32
-		case "int64": return types.I64
-		case "float": return types.F64
-		case "byte": return types.I8
-		case "bool": return types.I1
-		case "void": return types.Void
-		}
+		if typ, ok := v.ctx.GetType(name); ok { return typ }
 		return types.I64
 	}
-
 	if typeCtx.PointerType() != nil {
 		elemType := v.resolveType(typeCtx.PointerType().Type_())
 		return types.NewPointer(elemType)
 	}
-
 	if typeCtx.IDENTIFIER() != nil {
 		name := typeCtx.IDENTIFIER().GetText()
-		if typ, ok := v.ctx.GetType(name); ok {
-			return typ
-		}
+		if typ, ok := v.ctx.GetType(name); ok { return typ }
 		return types.I64
 	}
-
 	return types.I64
 }
 
 func (v *IRVisitor) getZeroValue(typ types.Type) ir.Value {
 	switch typ.Kind() {
-	case types.IntegerKind:
-		return v.ctx.Builder.ConstInt(typ.(*types.IntType), 0)
-	case types.FloatKind:
-		return v.ctx.Builder.ConstFloat(typ.(*types.FloatType), 0.0)
-	case types.PointerKind:
-		return v.ctx.Builder.ConstNull(typ.(*types.PointerType))
-	default:
-		return v.ctx.Builder.ConstZero(typ)
+	case types.IntegerKind: return v.ctx.Builder.ConstInt(typ.(*types.IntType), 0)
+	case types.FloatKind: return v.ctx.Builder.ConstFloat(typ.(*types.FloatType), 0.0)
+	case types.PointerKind: return v.ctx.Builder.ConstNull(typ.(*types.PointerType))
+	default: return v.ctx.Builder.ConstZero(typ)
 	}
 }
 
 func (v *IRVisitor) findFieldIndex(structType *types.StructType, fieldName string) int {
-	// In a real implementation, you'd store field names in the StructType or a separate symbol table.
-	// Since types.StructType here doesn't have field names (just []Type), we can't implement this properly 
-	// without changing the type definition.
-	// We'll return 0 as a placeholder or panic.
 	v.ctx.Diagnostics.Warning(fmt.Sprintf("Cannot look up field '%s' by name - structs only store types.", fieldName))
 	return 0
 }
 
 func (v *IRVisitor) castValue(val ir.Value, targetType types.Type) ir.Value {
 	srcType := val.Type()
-
-	// Integer resizing
 	if types.IsInteger(srcType) && types.IsInteger(targetType) {
 		srcBits := srcType.(*types.IntType).BitWidth
 		destBits := targetType.(*types.IntType).BitWidth
-
 		if srcBits > destBits {
 			return v.ctx.Builder.CreateTrunc(val, targetType, "")
 		} else if srcBits < destBits {
 			return v.ctx.Builder.CreateSExt(val, targetType, "")
 		}
 	}
-	
-	// Default to no-op if types match or unhandled
 	return val
 }
