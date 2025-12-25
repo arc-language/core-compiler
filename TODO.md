@@ -1,8 +1,8 @@
 
 
-1: structs 
-
-2: self funcs
+1: structs & classes 
+  - check the lang readme
+  - inine and non inline support
 
 3: importing and modules/packages, core modules
   - core modules use pure syscall, for macos they use linker 
