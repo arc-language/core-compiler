@@ -26,14 +26,35 @@ NO → struct (just data)
 
 4: more core modules 
 
-// Your Arc client for HuggingFace
-import "github.com/arc-language/huggingface"
+import "github.com/arc-language/ai"
 
-let model = huggingface.download("meta-llama/Llama-3-8B", {
-    token: "hf_xxxxx",  // Optional API token
-    cache_dir: "~/.arc/models",
-    revision: "main"
-})
+// Unified Arc interface
+let model = ai.Model{
+    provider: "openai",
+    model: "gpt-4o",
+    api_key: env.get("OPENAI_KEY")
+}
+
+let model = ai.Model{
+    provider: "xai", 
+    model: "grok-2",
+    api_key: env.get("XAI_KEY")
+}
+
+let model = ai.Model{
+    provider: "anthropic",
+    model: "claude-sonnet-4.5",
+    api_key: env.get("ANTHROPIC_KEY")
+}
+
+let model = ai.Model{
+    provider: "huggingface",
+    model: "meta-llama/Llama-3-8B",
+    local: true  // Self-hosted
+}
+
+// Same interface for all
+let response = model.generate("Hello, world!")
 
 - ai models
 - ui
