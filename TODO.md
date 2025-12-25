@@ -25,6 +25,16 @@ NO → struct (just data)
 
 
 4: more core modules 
+
+// Your Arc client for HuggingFace
+import "github.com/arc-language/huggingface"
+
+let model = huggingface.download("meta-llama/Llama-3-8B", {
+    token: "hf_xxxxx",  // Optional API token
+    cache_dir: "~/.arc/models",
+    revision: "main"
+})
+
 - ai models
 - ui
 - http 
