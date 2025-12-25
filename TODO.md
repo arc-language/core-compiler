@@ -4,9 +4,13 @@
 
 2: self funcs
 
-3: importing and modules/packages 
- - 	"github.com/arc-language/io"
- - io.printf()
+3: importing and modules/packages, core modules
+  - core modules use pure syscall, for macos they use linker 
+  - need to add syscall support to the parser, codegen and builder
+  - and then your io modules can just wrap around with types support
+  - and you also need module for platform checker
+  - 	"github.com/arc-language/io"
+  - io.printf()
 
 4: linker
  - 	"github.com/arc-language/core-linker"
