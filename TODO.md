@@ -21,4 +21,10 @@ NO → struct (just data)
 
 3: linker
  - 	"github.com/arc-language/core-linker"
- -  mainly replace gcc and read the .so files and patch offsets directly instead 
+ -  mainly replace gcc and read the .so files and patch offsets directly instead
+
+
+4: more core modules 
+- ai models
+- ui
+- http 
