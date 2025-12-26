@@ -3,7 +3,6 @@ package compiler
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/arc-language/core-builder/ir"
 	"github.com/arc-language/core-builder/types"
