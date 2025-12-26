@@ -134,9 +134,15 @@ func (v *IRVisitor) VisitPostfixExpression(ctx *parser.PostfixExpressionContext)
 }
 
 func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) ir.Value {
+	// Add debug output
+	fmt.Printf("DEBUG visitPostfixOp: DOT=%v, IDENTIFIER=%v, LPAREN=%v\n", 
+		ctx.DOT() != nil, ctx.IDENTIFIER() != nil, ctx.LPAREN() != nil)
+	
 	// Namespace access
 	if ctx.DOT() != nil && ctx.IDENTIFIER() != nil {
 		fieldName := ctx.IDENTIFIER().GetText()
+		fmt.Printf("DEBUG: Accessing field/method: %s\n", fieldName)
+		fmt.Printf("DEBUG: Base type: %v\n", base.Type())
 		
 		if global, ok := base.(*ir.Global); ok && strings.HasPrefix(global.Name(), "namespace:") {
 			nsName := strings.TrimPrefix(global.Name(), "namespace:")
@@ -151,24 +157,36 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 		
 		// Field access (not a method call)
 		if ctx.LPAREN() == nil {
+			fmt.Printf("DEBUG: Field access (no method call)\n")
+			
 			// Case 1: Pointer to struct/class
 			if ptrType, ok := base.Type().(*types.PointerType); ok {
+				fmt.Printf("DEBUG: Base is pointer type\n")
 				if structType, ok := ptrType.ElementType.(*types.StructType); ok {
+					fmt.Printf("DEBUG: Element is struct type: %s\n", structType.Name)
 					isClass := v.ctx.IsClassType(structType.Name)
+					fmt.Printf("DEBUG: Is class type: %v\n", isClass)
 					fieldIdx := -1
 					
 					if isClass {
+						fmt.Printf("DEBUG: Looking in ClassFieldIndices for '%s'\n", structType.Name)
 						if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
+							fmt.Printf("DEBUG: Found field indices map: %v\n", fieldIndices)
 							if idx, ok := fieldIndices[fieldName]; ok {
 								fieldIdx = idx
+								fmt.Printf("DEBUG: Found field index: %d\n", fieldIdx)
+							} else {
+								fmt.Printf("DEBUG: Field '%s' not found in indices\n", fieldName)
 							}
+						} else {
+							fmt.Printf("DEBUG: No field indices found for class '%s'\n", structType.Name)
 						}
 					} else {
 						fieldIdx = v.findFieldIndex(structType, fieldName)
 					}
 					
 					if fieldIdx < 0 {
-						v.ctx.Diagnostics.Error(fmt.Sprintf("type has no field '%s'", fieldName))
+						v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' has no field '%s'", structType.Name, fieldName))
 						return base
 					}
 					
@@ -192,7 +210,7 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 				return v.ctx.Builder.CreateExtractValue(base, []int{fieldIdx}, "")
 			}
 			
-			v.ctx.Diagnostics.Error("field access requires struct or class instance")
+			v.ctx.Diagnostics.Error(fmt.Sprintf("field access requires struct or class instance, got %v", base.Type()))
 			return base
 		}
 	}
@@ -271,9 +289,13 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 
+		fmt.Printf("DEBUG: Found symbol: %s, IsConst: %v, Type: %v\n", sym.Name, sym.IsConst, sym.Value.Type())
+
 		if ptr, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
 			ptrType := ptr.Type().(*types.PointerType)
-			return v.ctx.Builder.CreateLoad(ptrType.ElementType, ptr, "")
+			loaded := v.ctx.Builder.CreateLoad(ptrType.ElementType, ptr, "")
+			fmt.Printf("DEBUG: Loaded from alloca, result type: %v\n", loaded.Type())
+			return loaded
 		}
 
 		return sym.Value

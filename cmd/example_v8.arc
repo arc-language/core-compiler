@@ -18,9 +18,17 @@ class Client {
     }
 }
 
-func main() int32 {
+func newClient() *Client {
+    let d = alloca(Client)
+    d.port = 1000
+    // initialize fields
+    return d
+}
 
-    let client = Client{}
+func main() int32 {
+    let client = newClient()
+
+    c.printf("%d\n", client.port)
 
     return 0
 }

@@ -42,8 +42,11 @@ func (v *IRVisitor) registerStructType(ctx *parser.StructDeclContext) {
 func (v *IRVisitor) registerClassType(ctx *parser.ClassDeclContext) {
 	name := ctx.IDENTIFIER().GetText()
 	
+	fmt.Printf("DEBUG: Registering class type: %s\n", name)
+	
 	// Check if already registered
 	if _, ok := v.ctx.GetType(name); ok {
+		fmt.Printf("DEBUG: Class '%s' already registered\n", name)
 		return
 	}
 	
@@ -58,6 +61,8 @@ func (v *IRVisitor) registerClassType(ctx *parser.ClassDeclContext) {
 			fieldName := field.IDENTIFIER().GetText()
 			fieldType := v.resolveType(field.Type_())
 			
+			fmt.Printf("DEBUG: Class '%s' field '%s' at index %d, type: %v\n", name, fieldName, fieldIndex, fieldType)
+			
 			fieldTypes = append(fieldTypes, fieldType)
 			fieldMap[fieldName] = fieldIndex
 			fieldIndex++
@@ -66,10 +71,14 @@ func (v *IRVisitor) registerClassType(ctx *parser.ClassDeclContext) {
 	
 	// Register mapping in context
 	v.ctx.ClassFieldIndices[name] = fieldMap
+	fmt.Printf("DEBUG: Registered ClassFieldIndices[%s] = %v\n", name, fieldMap)
 
-	// Create struct type for the class
+	// Create struct type for the class - ENSURE NAME IS SET
 	structType := types.NewStruct(name, fieldTypes, false)
+	fmt.Printf("DEBUG: Created struct type with name: %s\n", structType.Name)
+	
 	v.ctx.RegisterClass(name, structType)
+	fmt.Printf("DEBUG: Registered class '%s' in context\n", name)
 }
 
 func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
