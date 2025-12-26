@@ -1,0 +1,124 @@
+package compiler
+
+import (
+	"github.com/arc-language/core-builder/types"
+	"github.com/arc-language/core-parser"
+)
+
+// registerStructType registers a struct type in pass 1
+func (v *IRVisitor) registerStructType(ctx *parser.StructDeclContext) {
+	name := ctx.IDENTIFIER().GetText()
+	
+	// Check if already registered
+	if _, ok := v.ctx.GetType(name); ok {
+		return
+	}
+	
+	// Create field map
+	fieldMap := make(map[string]int)
+	fieldTypes := make([]types.Type, 0)
+	
+	fieldIndex := 0
+	for _, member := range ctx.AllStructMember() {
+		if member.StructField() != nil {
+			field := member.StructField()
+			fieldName := field.IDENTIFIER().GetText()
+			fieldType := v.resolveType(field.Type_())
+			
+			fieldTypes = append(fieldTypes, fieldType)
+			fieldMap[fieldName] = fieldIndex
+			fieldIndex++
+		}
+	}
+	
+	// Register mapping in context
+	v.ctx.StructFieldIndices[name] = fieldMap
+
+	structType := types.NewStruct(name, fieldTypes, false)
+	v.ctx.RegisterType(name, structType)
+}
+
+// registerClassType registers a class type in pass 1
+func (v *IRVisitor) registerClassType(ctx *parser.ClassDeclContext) {
+	name := ctx.IDENTIFIER().GetText()
+	
+	// Check if already registered
+	if _, ok := v.ctx.GetType(name); ok {
+		return
+	}
+	
+	// Create field map
+	fieldMap := make(map[string]int)
+	fieldTypes := make([]types.Type, 0)
+	
+	fieldIndex := 0
+	for _, member := range ctx.AllClassMember() {
+		if member.ClassField() != nil {
+			field := member.ClassField()
+			fieldName := field.IDENTIFIER().GetText()
+			fieldType := v.resolveType(field.Type_())
+			
+			fieldTypes = append(fieldTypes, fieldType)
+			fieldMap[fieldName] = fieldIndex
+			fieldIndex++
+		}
+	}
+	
+	// Register mapping in context
+	v.ctx.ClassFieldIndices[name] = fieldMap
+
+	// Create struct type for the class
+	structType := types.NewStruct(name, fieldTypes, false)
+	v.ctx.RegisterClass(name, structType)
+}
+
+func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
+	// Type already registered in pass 1
+	// Now compile methods
+	for _, member := range ctx.AllStructMember() {
+		if member.FunctionDecl() != nil {
+			v.Visit(member.FunctionDecl())
+		}
+	}
+	
+	return nil
+}
+
+func (v *IRVisitor) VisitClassDecl(ctx *parser.ClassDeclContext) interface{} {
+	// Type already registered in pass 1
+	// Now compile methods
+	for _, member := range ctx.AllClassMember() {
+		if member.FunctionDecl() != nil {
+			v.Visit(member.FunctionDecl())
+		} else if member.DeinitDecl() != nil {
+			v.Visit(member.DeinitDecl())
+		}
+	}
+	
+	return nil
+}
+
+func (v *IRVisitor) VisitClassMember(ctx *parser.ClassMemberContext) interface{} {
+	if ctx.ClassField() != nil {
+		return v.Visit(ctx.ClassField())
+	}
+	if ctx.FunctionDecl() != nil {
+		return v.Visit(ctx.FunctionDecl())
+	}
+	if ctx.DeinitDecl() != nil {
+		return v.Visit(ctx.DeinitDecl())
+	}
+	return nil
+}
+
+func (v *IRVisitor) VisitClassField(ctx *parser.ClassFieldContext) interface{} {
+	// Field definitions are handled in registerClassType
+	return nil
+}
+
+func (v *IRVisitor) VisitDeinitDecl(ctx *parser.DeinitDeclContext) interface{} {
+	// TODO: Implement deinit as a special destructor function
+	// This will be called when reference count reaches zero
+	v.ctx.Diagnostics.Warning("deinit is not yet implemented")
+	return nil
+}
