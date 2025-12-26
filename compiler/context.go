@@ -48,18 +48,22 @@ type Context struct {
 	Builder     *builder.Builder
 	Module      *ir.Module
 	Diagnostics *diagnostics.DiagnosticEngine
+	Importer    *Importer
 	
 	// Current compilation scope
 	currentFunction *ir.Function
 	currentBlock    *ir.BasicBlock
 	
 	// Symbol tables
-	globalScope *Scope
+	globalScope  *Scope
 	currentScope *Scope
 	
 	// Namespace management
 	rootNamespace    *Namespace
 	currentNamespace *Namespace
+	
+	// Registry for all loaded namespaces (Key: Namespace Name)
+	NamespaceRegistry map[string]*Namespace
 	
 	// Type cache
 	namedTypes map[string]types.Type
@@ -81,7 +85,7 @@ type Context struct {
 }
 
 // NewContext creates a new compilation context
-func NewContext(moduleName string) *Context {
+func NewContext(entryFile string, moduleName string) *Context {
 	b := builder.New()
 	mod := b.CreateModule(moduleName)
 	
@@ -91,6 +95,7 @@ func NewContext(moduleName string) *Context {
 		Builder:            b,
 		Module:             mod,
 		Diagnostics:        diagnostics.NewDiagnosticEngine(),
+		Importer:           NewImporter(entryFile),
 		globalScope:        NewScope(nil),
 		namedTypes:         make(map[string]types.Type),
 		StructFieldIndices: make(map[string]map[string]int),
@@ -100,6 +105,7 @@ func NewContext(moduleName string) *Context {
 		loopStack:          make([]LoopInfo, 0),
 		rootNamespace:      rootNs,
 		currentNamespace:   rootNs,
+		NamespaceRegistry:  make(map[string]*Namespace),
 	}
 	
 	ctx.currentScope = ctx.globalScope
@@ -110,44 +116,42 @@ func NewContext(moduleName string) *Context {
 
 // SetNamespace sets the current namespace
 func (c *Context) SetNamespace(name string) *Namespace {
-	// Check if namespace already exists as child of current
-	for _, ns := range []*Namespace{c.currentNamespace} {
-		if ns.Name == name {
-			c.currentNamespace = ns
-			return ns
-		}
+	// If the namespace name is empty, we are in the root
+	if name == "" {
+		c.currentNamespace = c.rootNamespace
+		return c.rootNamespace
 	}
-	
-	// Create new namespace
-	ns := NewNamespace(name, c.currentNamespace)
+
+	// Check registry first (cross-file persistence)
+	if ns, ok := c.NamespaceRegistry[name]; ok {
+		c.currentNamespace = ns
+		return ns
+	}
+
+	// Create new namespace attached to root (flat namespace hierarchy for now)
+	ns := NewNamespace(name, c.rootNamespace)
+	c.NamespaceRegistry[name] = ns
 	c.currentNamespace = ns
 	return ns
 }
 
-// GetOrCreateNamespace gets or creates a namespace
+// GetOrCreateNamespace gets or creates a namespace by name
 func (c *Context) GetOrCreateNamespace(name string) *Namespace {
-	// Try to find existing namespace starting from root
-	return c.findOrCreateNamespace(c.rootNamespace, name)
-}
-
-func (c *Context) findOrCreateNamespace(parent *Namespace, name string) *Namespace {
-	// This is a simplified version - in production you'd want a proper registry
-	return NewNamespace(name, parent)
+	if name == "" {
+		return c.rootNamespace
+	}
+	if ns, ok := c.NamespaceRegistry[name]; ok {
+		return ns
+	}
+	ns := NewNamespace(name, c.rootNamespace)
+	c.NamespaceRegistry[name] = ns
+	return ns
 }
 
 // LookupInNamespace looks up a function in a specific namespace
 func (c *Context) LookupInNamespace(namespaceName, functionName string) (*ir.Function, bool) {
-	// For now, simple implementation - you'd want a proper namespace registry
-	// Check if we have an "extern" namespace with this name
-	if namespaceName != "" {
-		// Look in module functions with prefix
-		for _, fn := range c.Module.Functions {
-			if fn.Name() == functionName {
-				return fn, true
-			}
-		}
-	}
-	return nil, false
+	ns := c.GetOrCreateNamespace(namespaceName)
+	return ns.LookupFunction(functionName)
 }
 
 // registerBuiltinTypes registers primitive and builtin types
@@ -209,6 +213,8 @@ func (c *Context) GetType(name string) (types.Type, bool) {
 // RegisterType registers a named type
 func (c *Context) RegisterType(name string, typ types.Type) {
 	c.namedTypes[name] = typ
+	// Also register in current namespace
+	c.currentNamespace.Types[name] = typ
 	
 	// If it's a struct type, also register in module
 	if structTy, ok := typ.(*types.StructType); ok {
@@ -220,6 +226,8 @@ func (c *Context) RegisterType(name string, typ types.Type) {
 func (c *Context) RegisterClass(name string, typ types.Type) {
 	c.namedTypes[name] = typ
 	c.classTypes[name] = true
+	// Also register in current namespace
+	c.currentNamespace.Types[name] = typ
 	
 	if structTy, ok := typ.(*types.StructType); ok {
 		c.Module.Types[name] = structTy

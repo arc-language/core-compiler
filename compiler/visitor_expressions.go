@@ -62,8 +62,6 @@ func (v *IRVisitor) VisitRelationalExpression(ctx *parser.RelationalExpressionCo
 }
 
 func (v *IRVisitor) VisitRangeExpression(ctx *parser.RangeExpressionContext) interface{} {
-	// For now, just visit the additive expression
-	// Range expressions like 1..10 can be implemented later
 	return v.Visit(ctx.AdditiveExpression(0))
 }
 
@@ -172,10 +170,12 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 		// Reset pending method state from any previous operation
 		v.pendingMethodSelf = nil
 		
-		// Check if this is a namespace.function access
+		// 1. Check if this is a namespace.function access
+		// Usage: utils.Func() -> baseIdentifier="utils", memberName="Func"
 		if baseIdentifier != "" {
-			if fns, ok := v.namespaces[baseIdentifier]; ok {
-				if fn, ok := fns[memberName]; ok {
+			// Lookup namespace in global context registry
+			if ns, ok := v.ctx.NamespaceRegistry[baseIdentifier]; ok {
+				if fn, ok := ns.LookupFunction(memberName); ok {
 					return fn
 				}
 				v.ctx.Diagnostics.Error(fmt.Sprintf("function '%s' not found in namespace '%s'", memberName, baseIdentifier))
@@ -183,23 +183,32 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 			}
 		}
 		
-		// Not a namespace access - check for class method
+		// 2. Not a namespace access - check for class method
 		if ptrType, ok := base.Type().(*types.PointerType); ok {
 			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
 				if v.ctx.IsClassType(structType.Name) {
 					// Look for a method with the naming convention: ClassName_methodName
+					// Also check if the class is part of a namespace
+					// For now, simpler implementation: Class methods are just functions
+					
+					// Try Class_Member
 					methodName := structType.Name + "_" + memberName
 					
+					// If we are in a namespace, checking module functions might need namespace prefix?
+					// But usually, methods are looked up via the type name which is unique.
 					if fn := v.ctx.Module.GetFunction(methodName); fn != nil {
 						// Store the self pointer to be prepended when the function is called
 						v.pendingMethodSelf = base
 						return fn
 					}
+					
+					// If the class was defined in a namespace, the method might be "Namespace_Class_Member"
+					// This gets complicated without Type metadata storing the namespace.
 				}
 			}
 		}
 		
-		// Field access
+		// 3. Field access
 		return v.handleFieldAccess(base, memberName)
 	}
 	
@@ -253,7 +262,6 @@ func (v *IRVisitor) handleFieldAccess(base ir.Value, fieldName string) ir.Value 
 }
 
 func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext) interface{} {
-	// Check struct literal FIRST
 	if ctx.StructLiteral() != nil {
 		return v.Visit(ctx.StructLiteral())
 	}
@@ -288,19 +296,28 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		
-		// Check if this is a namespace - namespaces don't have values, but we need to return something
-		// so the postfix operator can check the identifier name
-		if _, isNamespace := v.namespaces[name]; isNamespace {
+		// Check if this is a namespace
+		if _, isNamespace := v.ctx.NamespaceRegistry[name]; isNamespace {
 			// Return a dummy value - the postfix operator will use the baseIdentifier parameter
-			// to actually look up the function
+			// to actually look up the function in the namespace
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		
+		// Normal variable lookup
 		sym, ok := v.ctx.currentScope.Lookup(name)
 		if !ok {
+			// Check if it's a function in the current namespace
+			if v.ctx.currentNamespace != nil {
+				if fn, ok := v.ctx.currentNamespace.Functions[name]; ok {
+					return fn
+				}
+			}
+			
+			// Fallback: Check module directly
 			if fn := v.ctx.Module.GetFunction(name); fn != nil {
 				return fn
 			}
+			
 			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
@@ -506,32 +523,26 @@ func (v *IRVisitor) VisitAllocaExpression(ctx *parser.AllocaExpressionContext) i
 }
 
 func (v *IRVisitor) VisitSyscallExpression(ctx *parser.SyscallExpressionContext) interface{} {
-	// 1. Collect all expressions
 	exprs := ctx.AllExpression()
 	if len(exprs) == 0 {
 		v.ctx.Diagnostics.Error("syscall requires at least a syscall number")
 		return v.ctx.Builder.ConstInt(types.I64, -1)
 	}
 
-	// 2. Generate values for all arguments
 	args := make([]ir.Value, len(exprs))
 	for i, expr := range exprs {
 		val := v.Visit(expr).(ir.Value)
 		
 		// Auto-cast integers to I64 for the builder
-		// This simplifies the backend work, as registers are 64-bit anyway
 		if types.IsInteger(val.Type()) {
 			if val.Type().BitSize() < 64 {
 				val = v.ctx.Builder.CreateSExt(val, types.I64, "")
 			}
-		} else if types.IsPointer(val.Type()) {
-			// Pointers are fine, backend loads them as 64-bit addresses
 		}
 		
 		args[i] = val
 	}
 
-	// 3. Create the syscall instruction
 	return v.ctx.Builder.CreateSyscall(args)
 }
 
@@ -551,4 +562,21 @@ func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface
 	}
 	
 	return args
+}
+
+func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface{} {
+	if ctx.IDENTIFIER() != nil && ctx.DOT() == nil && ctx.STAR() == nil {
+		name := ctx.IDENTIFIER().GetText()
+		sym, ok := v.ctx.currentScope.Lookup(name)
+		if ok {
+			return sym.Value
+		}
+	}
+	if ctx.STAR() != nil {
+		return v.Visit(ctx.PostfixExpression())
+	}
+	if ctx.PostfixExpression() != nil {
+		return v.Visit(ctx.PostfixExpression())
+	}
+	return v.ctx.Builder.ConstInt(types.I64, 0)
 }

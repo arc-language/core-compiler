@@ -1,5 +1,13 @@
 namespace main
 
+import (
+    "../somefolder/os" // a bunch of .arc files with namespace utils 
+)
+
+utils.Something()
+
+
+
 // Linux x86_64 System Call Numbers
 const SYS_WRITE = 1
 const SYS_EXIT = 60

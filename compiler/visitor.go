@@ -5,29 +5,28 @@ import (
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
-	"github.com/arc-language/core-builder/types" // Added missing import
+	"github.com/arc-language/core-builder/types"
 	"github.com/arc-language/core-parser"
 )
 
 // IRVisitor implements the ANTLR visitor pattern to generate IR
 type IRVisitor struct {
 	*parser.BaseArcParserVisitor
-	ctx *Context
-
-	// Namespace tracking for externs
-	namespaces       map[string]map[string]*ir.Function
-	currentNamespace string
+	compiler    *Compiler
+	ctx         *Context
+	currentFile string
 	
 	// Method call tracking
 	pendingMethodSelf ir.Value
 }
 
 // NewIRVisitor creates a new IR visitor
-func NewIRVisitor(ctx *Context) *IRVisitor {
+func NewIRVisitor(c *Compiler, filename string) *IRVisitor {
 	return &IRVisitor{
 		BaseArcParserVisitor: &parser.BaseArcParserVisitor{},
-		ctx:                  ctx,
-		namespaces:           make(map[string]map[string]*ir.Function),
+		compiler:             c,
+		ctx:                  c.context,
+		currentFile:          filename,
 	}
 }
 
@@ -135,8 +134,20 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 // ============================================================================
 
 func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) interface{} {
-	fmt.Printf("DEBUG VisitCompilationUnit: Starting compilation\n")
+	fmt.Printf("DEBUG VisitCompilationUnit: Starting compilation of %s\n", v.currentFile)
 	
+	// Pass 0: Imports
+	// We must process imports first so external types/symbols are loaded
+	fmt.Printf("DEBUG VisitCompilationUnit: Pass 0 - Processing imports\n")
+	for _, imp := range ctx.AllImportDecl() {
+		v.Visit(imp)
+	}
+
+	// Process Namespace declaration if present (affects visibility of subsequent decls)
+	for _, ns := range ctx.AllNamespaceDecl() {
+		v.Visit(ns)
+	}
+
 	// Pass 1: Register all type declarations (structs and classes)
 	fmt.Printf("DEBUG VisitCompilationUnit: Pass 1 - Registering types\n")
 	for _, decl := range ctx.AllTopLevelDecl() {
@@ -149,38 +160,24 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 	
 	// Pass 2: Process everything else
 	fmt.Printf("DEBUG VisitCompilationUnit: Pass 2 - Processing declarations\n")
-	for _, ns := range ctx.AllNamespaceDecl() {
-		v.Visit(ns)
-	}
-	
-	for _, imp := range ctx.AllImportDecl() {
-		v.Visit(imp)
-	}
 	
 	for i, decl := range ctx.AllTopLevelDecl() {
-		fmt.Printf("DEBUG VisitCompilationUnit: Processing top-level decl %d\n", i)
 		if decl.FunctionDecl() != nil {
-			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is function\n", i)
 			v.Visit(decl.FunctionDecl())
 		} else if decl.ExternDecl() != nil {
-			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is extern\n", i)
 			v.Visit(decl.ExternDecl())
 		} else if decl.ConstDecl() != nil {
-			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is const\n", i)
 			v.Visit(decl.ConstDecl())
 		} else if decl.VariableDecl() != nil {
-			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is variable\n", i)
 			v.Visit(decl.VariableDecl())
 		} else if decl.StructDecl() != nil {
-			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is struct - processing methods\n", i)
 			v.Visit(decl.StructDecl())
 		} else if decl.ClassDecl() != nil {
-			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is class - processing methods\n", i)
 			v.Visit(decl.ClassDecl())
 		}
 	}
 	
-	fmt.Printf("DEBUG VisitCompilationUnit: Compilation complete\n")
+	fmt.Printf("DEBUG VisitCompilationUnit: Compilation complete for %s\n", v.currentFile)
 	return nil
 }
 
@@ -207,13 +204,15 @@ func (v *IRVisitor) VisitTopLevelDecl(ctx *parser.TopLevelDeclContext) interface
 }
 
 func (v *IRVisitor) VisitNamespaceDecl(ctx *parser.NamespaceDeclContext) interface{} {
-	// Namespace declarations are metadata only
+	name := ctx.IDENTIFIER().GetText()
+	fmt.Printf("DEBUG: Setting current namespace to '%s'\n", name)
+	v.ctx.SetNamespace(name)
 	return nil
 }
 
 func (v *IRVisitor) VisitImportDecl(ctx *parser.ImportDeclContext) interface{} {
-	// Import declarations are handled by a separate module system
-	return nil
+	// Handled in declarations visitor
+	return v.VisitImportDecl(ctx)
 }
 
 // ============================================================================
@@ -260,6 +259,12 @@ func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 		if typ, ok := v.ctx.GetType(name); ok {
 			return typ
 		}
+		// If explicit type lookup fails, try looking in the namespace registry
+		// e.g., if we have `utils.MyType`, but parser gives us IDENTIFIER.
+		// NOTE: The parser grammar for types usually handles `IDENTIFIER` or `IDENTIFIER.IDENTIFIER`.
+		// If your grammar only supports simple identifiers for types, you can't type `utils.Type`.
+		// Assuming simple identifiers for now.
+		
 		v.ctx.Diagnostics.Error(fmt.Sprintf("unknown type: %s", name))
 		return types.I64
 	}
