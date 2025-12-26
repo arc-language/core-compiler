@@ -5,6 +5,7 @@ import (
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
+	"github.com/arc-language/core-builder/types" // Added missing import
 	"github.com/arc-language/core-parser"
 )
 
@@ -118,10 +119,8 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitCastExpression(ctx)
 	case *parser.AllocaExpressionContext:
 		return v.VisitAllocaExpression(ctx)
-	// --- ADDED THIS CASE ---
 	case *parser.SyscallExpressionContext:
 		return v.VisitSyscallExpression(ctx)
-	// -----------------------
 	case *parser.ArgumentListContext:
 		return v.VisitArgumentList(ctx)
 	case *parser.LeftHandSideContext:
