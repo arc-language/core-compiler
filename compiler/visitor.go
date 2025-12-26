@@ -854,6 +854,9 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 }
 
 func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext) interface{} {
+	// Check struct literal FIRST
+	if ctx.StructLiteral() != nil { return v.Visit(ctx.StructLiteral()) }
+	
 	if ctx.IDENTIFIER() != nil {
 		name := ctx.IDENTIFIER().GetText()
 		sym, ok := v.ctx.currentScope.Lookup(name)
@@ -871,7 +874,6 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		return sym.Value
 	}
 	if ctx.Literal() != nil { return v.Visit(ctx.Literal()) }
-	if ctx.StructLiteral() != nil { return v.Visit(ctx.StructLiteral()) }
 	if ctx.Expression() != nil { return v.Visit(ctx.Expression()) }
 	if ctx.CastExpression() != nil { return v.Visit(ctx.CastExpression()) }
 	if ctx.AllocaExpression() != nil { return v.Visit(ctx.AllocaExpression()) }
