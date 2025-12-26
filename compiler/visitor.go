@@ -56,6 +56,14 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitFunctionDecl(ctx)
 	case *parser.StructDeclContext:
 		return v.VisitStructDecl(ctx)
+	case *parser.ClassDeclContext:
+		return v.VisitClassDecl(ctx)
+	case *parser.ClassMemberContext:
+		return v.VisitClassMember(ctx)
+	case *parser.ClassFieldContext:
+		return v.VisitClassField(ctx)
+	case *parser.DeinitDeclContext:
+		return v.VisitDeinitDecl(ctx)
 	case *parser.BlockContext:
 		return v.VisitBlock(ctx)
 	case *parser.StatementContext:
@@ -117,8 +125,6 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 	}
 }
 
-// ... [Existing Methods: VisitCompilationUnit, VisitTopLevelDecl, etc.] ...
-
 func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) interface{} {
 	for _, ns := range ctx.AllNamespaceDecl() { v.Visit(ns) }
 	for _, imp := range ctx.AllImportDecl() { v.Visit(imp) }
@@ -129,6 +135,7 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 func (v *IRVisitor) VisitTopLevelDecl(ctx *parser.TopLevelDeclContext) interface{} {
 	if ctx.FunctionDecl() != nil { return v.Visit(ctx.FunctionDecl()) }
 	if ctx.StructDecl() != nil { return v.Visit(ctx.StructDecl()) }
+	if ctx.ClassDecl() != nil { return v.Visit(ctx.ClassDecl()) }
 	if ctx.ExternDecl() != nil { return v.Visit(ctx.ExternDecl()) }
 	if ctx.ConstDecl() != nil { return v.Visit(ctx.ConstDecl()) }
 	if ctx.VariableDecl() != nil { return v.Visit(ctx.VariableDecl()) }
@@ -231,12 +238,15 @@ func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 	fieldMap := make(map[string]int)
 	fieldTypes := make([]types.Type, 0)
 	
-	for i, field := range ctx.AllStructField() {
-		fieldName := field.IDENTIFIER().GetText()
-		fieldType := v.resolveType(field.Type_())
-		
-		fieldTypes = append(fieldTypes, fieldType)
-		fieldMap[fieldName] = i
+	for i, member := range ctx.AllStructMember() {
+		if member.StructField() != nil {
+			field := member.StructField()
+			fieldName := field.IDENTIFIER().GetText()
+			fieldType := v.resolveType(field.Type_())
+			
+			fieldTypes = append(fieldTypes, fieldType)
+			fieldMap[fieldName] = i
+		}
 	}
 	
 	// Register mapping in context
@@ -244,6 +254,73 @@ func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 
 	structType := types.NewStruct(name, fieldTypes, false)
 	v.ctx.RegisterType(name, structType)
+	
+	// Compile methods (inline or flat)
+	for _, member := range ctx.AllStructMember() {
+		if member.FunctionDecl() != nil {
+			v.Visit(member.FunctionDecl())
+		}
+	}
+	
+	return nil
+}
+
+func (v *IRVisitor) VisitClassDecl(ctx *parser.ClassDeclContext) interface{} {
+	name := ctx.IDENTIFIER().GetText()
+	
+	// Create field map
+	fieldMap := make(map[string]int)
+	fieldTypes := make([]types.Type, 0)
+	
+	// Classes are heap-allocated, so we'll create a struct type
+	// The actual class instance will be accessed via pointer
+	for i, member := range ctx.AllClassMember() {
+		if member.ClassField() != nil {
+			field := member.ClassField()
+			fieldName := field.IDENTIFIER().GetText()
+			fieldType := v.resolveType(field.Type_())
+			
+			fieldTypes = append(fieldTypes, fieldType)
+			fieldMap[fieldName] = i
+		}
+	}
+	
+	// Register mapping in context
+	v.ctx.ClassFieldIndices[name] = fieldMap
+
+	// Create struct type for the class
+	structType := types.NewStruct(name, fieldTypes, false)
+	v.ctx.RegisterClass(name, structType)
+	
+	// Compile methods (inline or flat)
+	for _, member := range ctx.AllClassMember() {
+		if member.FunctionDecl() != nil {
+			v.Visit(member.FunctionDecl())
+		} else if member.DeinitDecl() != nil {
+			// TODO: Handle deinit (destructor for reference counting)
+			v.ctx.Diagnostics.Warning("deinit is not yet implemented")
+		}
+	}
+	
+	return nil
+}
+
+func (v *IRVisitor) VisitClassMember(ctx *parser.ClassMemberContext) interface{} {
+	if ctx.ClassField() != nil { return v.Visit(ctx.ClassField()) }
+	if ctx.FunctionDecl() != nil { return v.Visit(ctx.FunctionDecl()) }
+	if ctx.DeinitDecl() != nil { return v.Visit(ctx.DeinitDecl()) }
+	return nil
+}
+
+func (v *IRVisitor) VisitClassField(ctx *parser.ClassFieldContext) interface{} {
+	// Field definitions are handled in VisitClassDecl
+	return nil
+}
+
+func (v *IRVisitor) VisitDeinitDecl(ctx *parser.DeinitDeclContext) interface{} {
+	// TODO: Implement deinit as a special destructor function
+	// This will be called when reference count reaches zero
+	v.ctx.Diagnostics.Warning("deinit is not yet implemented")
 	return nil
 }
 
@@ -439,6 +516,13 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 	v.ctx.PushScope()
 	defer v.ctx.PopScope()
 
+	// Check for for-in loop (iteration)
+	if ctx.IN() != nil {
+		// for item in collection
+		// for key, value in map
+		return v.visitForInLoop(ctx)
+	}
+
 	semicolons := ctx.AllSEMICOLON()
 	isClause := len(semicolons) == 2
 	
@@ -510,6 +594,18 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 	}
 
 	v.ctx.SetInsertBlock(endBlock)
+	return nil
+}
+
+func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
+	// TODO: Implement for-in loop iteration
+	// This requires iterator support which depends on your collections implementation
+	// For now, emit a warning
+	v.ctx.Diagnostics.Warning("for-in loops are not yet fully implemented")
+	
+	// Visit the block anyway to catch any syntax errors
+	v.Visit(ctx.Block())
+	
 	return nil
 }
 
@@ -595,9 +691,9 @@ func (v *IRVisitor) VisitEqualityExpression(ctx *parser.EqualityExpressionContex
 }
 
 func (v *IRVisitor) VisitRelationalExpression(ctx *parser.RelationalExpressionContext) interface{} {
-	result := v.Visit(ctx.AdditiveExpression(0)).(ir.Value)
-	for i := 1; i < len(ctx.AllAdditiveExpression()); i++ {
-		rhs := v.Visit(ctx.AdditiveExpression(i)).(ir.Value)
+	result := v.Visit(ctx.RangeExpression(0)).(ir.Value)
+	for i := 1; i < len(ctx.AllRangeExpression()); i++ {
+		rhs := v.Visit(ctx.RangeExpression(i)).(ir.Value)
 		if i-1 < len(ctx.AllLT()) {
 			result = v.ctx.Builder.CreateICmpSLT(result, rhs, "")
 		} else if i-1-len(ctx.AllLT()) < len(ctx.AllLE()) {
@@ -685,24 +781,42 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 		}
 		
 		if ctx.LPAREN() == nil {
-			// Struct Field Access
+			// Struct/Class Field Access
 			
-			// Case 1: Pointer to struct (auto-dereference, standard for variables)
+			// Case 1: Pointer to struct/class
 			if ptrType, ok := base.Type().(*types.PointerType); ok {
 				if structType, ok := ptrType.ElementType.(*types.StructType); ok {
-					fieldIdx := v.findFieldIndex(structType, fieldName)
+					// Check if it's a class (use ClassFieldIndices) or struct (use StructFieldIndices)
+					isClass := v.ctx.IsClassType(structType.Name)
+					fieldIdx := -1
+					
+					if isClass {
+						if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
+							if idx, ok := fieldIndices[fieldName]; ok {
+								fieldIdx = idx
+							}
+						}
+					} else {
+						fieldIdx = v.findFieldIndex(structType, fieldName)
+					}
+					
 					if fieldIdx < 0 {
-						v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", fieldName))
+						v.ctx.Diagnostics.Error(fmt.Sprintf("type has no field '%s'", fieldName))
 						return base
 					}
-					// Return value, not pointer, to stay consistent with other expressions
+					
 					gep := v.ctx.Builder.CreateStructGEP(structType, base, fieldIdx, "")
 					return v.ctx.Builder.CreateLoad(structType.Fields[fieldIdx], gep, "")
 				}
 			}
 			
-			// Case 2: Struct value (direct value)
+			// Case 2: Struct value (direct value) - only for structs, not classes
 			if structType, ok := base.Type().(*types.StructType); ok {
+				if v.ctx.IsClassType(structType.Name) {
+					v.ctx.Diagnostics.Error("class instances must be accessed via pointer")
+					return base
+				}
+				
 				fieldIdx := v.findFieldIndex(structType, fieldName)
 				if fieldIdx < 0 {
 					v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", fieldName))
@@ -711,7 +825,7 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 				return v.ctx.Builder.CreateExtractValue(base, []int{fieldIdx}, "")
 			}
 			
-			v.ctx.Diagnostics.Error("field access requires struct or struct pointer")
+			v.ctx.Diagnostics.Error("field access requires struct or class instance")
 			return base
 		}
 	}

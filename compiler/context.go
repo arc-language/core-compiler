@@ -34,6 +34,12 @@ type Context struct {
 	// Struct Field Mapping: StructName -> FieldName -> Index
 	StructFieldIndices map[string]map[string]int
 	
+	// Class Field Mapping: ClassName -> FieldName -> Index
+	ClassFieldIndices map[string]map[string]int
+	
+	// Track which types are classes (for reference semantics)
+	classTypes map[string]bool
+	
 	// Deferred statements stack (per function)
 	deferredStmts [][]ir.Instruction
 
@@ -53,6 +59,8 @@ func NewContext(moduleName string) *Context {
 		globalScope:        NewScope(nil),
 		namedTypes:         make(map[string]types.Type),
 		StructFieldIndices: make(map[string]map[string]int),
+		ClassFieldIndices:  make(map[string]map[string]int),
+		classTypes:         make(map[string]bool),
 		deferredStmts:      make([][]ir.Instruction, 0),
 		loopStack:          make([]LoopInfo, 0),
 	}
@@ -83,7 +91,7 @@ func (c *Context) registerBuiltinTypes() {
 	c.namedTypes["f64"] = types.F64
 	c.namedTypes["f128"] = types.F128
 	
-	// Arc language type names (Go-style)
+	// Arc language type names
 	// Signed integers
 	c.namedTypes["int8"] = types.I8
 	c.namedTypes["int16"] = types.I16
@@ -109,9 +117,7 @@ func (c *Context) registerBuiltinTypes() {
 	// Special types
 	c.namedTypes["void"] = types.Void
 	c.namedTypes["bool"] = types.I1
-	
-	// Convenience aliases
-	c.namedTypes["rune"] = types.I32 // UTF-32 character (like Go)
+	c.namedTypes["char"] = types.U32 // Unicode code point (uint32)
 }
 
 // GetType resolves a type name to a Type
@@ -128,6 +134,21 @@ func (c *Context) RegisterType(name string, typ types.Type) {
 	if structTy, ok := typ.(*types.StructType); ok {
 		c.Module.Types[name] = structTy
 	}
+}
+
+// RegisterClass registers a class type (reference type)
+func (c *Context) RegisterClass(name string, typ types.Type) {
+	c.namedTypes[name] = typ
+	c.classTypes[name] = true
+	
+	if structTy, ok := typ.(*types.StructType); ok {
+		c.Module.Types[name] = structTy
+	}
+}
+
+// IsClassType checks if a type name refers to a class
+func (c *Context) IsClassType(name string) bool {
+	return c.classTypes[name]
 }
 
 // PushScope creates a new nested scope
