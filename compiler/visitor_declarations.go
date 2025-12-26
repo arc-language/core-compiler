@@ -95,6 +95,29 @@ func (v *IRVisitor) VisitExternFunctionDecl(ctx *parser.ExternFunctionDeclContex
 
 func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
+	
+	// Check if this is a method inside a class/struct by examining parent context
+	var methodPrefix string
+	if parent := ctx.GetParent(); parent != nil {
+		if classMember, ok := parent.(*parser.ClassMemberContext); ok {
+			// This is a class method - find the class name
+			if classDecl, ok := classMember.GetParent().(*parser.ClassDeclContext); ok {
+				className := classDecl.IDENTIFIER().GetText()
+				methodPrefix = className + "_"
+				name = methodPrefix + name
+				fmt.Printf("DEBUG: Class method detected, full name: %s\n", name)
+			}
+		} else if structMember, ok := parent.(*parser.StructMemberContext); ok {
+			// This is a struct method - find the struct name
+			if structDecl, ok := structMember.GetParent().(*parser.StructDeclContext); ok {
+				structName := structDecl.IDENTIFIER().GetText()
+				methodPrefix = structName + "_"
+				name = methodPrefix + name
+				fmt.Printf("DEBUG: Struct method detected, full name: %s\n", name)
+			}
+		}
+	}
+	
 	fmt.Printf("DEBUG VisitFunctionDecl: Function name: %s\n", name)
 	
 	var retType types.Type = types.Void

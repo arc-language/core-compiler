@@ -146,13 +146,39 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 	fmt.Printf("DEBUG visitPostfixOp: DOT=%v, IDENTIFIER=%v, LPAREN=%v\n", 
 		ctx.DOT() != nil, ctx.IDENTIFIER() != nil, ctx.LPAREN() != nil)
 	
-	// Namespace or field/method access
+	// Function call (check this FIRST)
+	if ctx.LPAREN() != nil {
+		var args []ir.Value
+		if ctx.ArgumentList() != nil {
+			args = v.Visit(ctx.ArgumentList()).([]ir.Value)
+		}
+		
+		// Check if this is a method call (we have a pending self parameter)
+		if fn, ok := base.(*ir.Function); ok {
+			// Prepend self parameter if we have one pending
+			if v.pendingMethodSelf != nil {
+				args = append([]ir.Value{v.pendingMethodSelf}, args...)
+				v.pendingMethodSelf = nil
+				fmt.Printf("DEBUG: Method call with self prepended, %d total args\n", len(args))
+			}
+			
+			fmt.Printf("DEBUG: Calling function: %s with %d args\n", fn.Name(), len(args))
+			return v.ctx.Builder.CreateCall(fn, args, "")
+		}
+		
+		v.ctx.Diagnostics.Error("cannot call non-function")
+		return base
+	}
+	
+	// Member access (DOT)
 	if ctx.DOT() != nil && ctx.IDENTIFIER() != nil {
 		memberName := ctx.IDENTIFIER().GetText()
 		fmt.Printf("DEBUG: Accessing member: %s\n", memberName)
 		
+		// Reset pending method state from any previous operation
+		v.pendingMethodSelf = nil
+		
 		// Check if this is a namespace.function access
-		// We can detect this if baseIdentifier matches a namespace
 		if baseIdentifier != "" {
 			fmt.Printf("DEBUG: Checking if '%s' is a namespace\n", baseIdentifier)
 			if fns, ok := v.namespaces[baseIdentifier]; ok {
@@ -166,90 +192,86 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 			}
 		}
 		
-		// Not a namespace access, handle as field/method access
-		fmt.Printf("DEBUG: Not a namespace access, treating as field/method\n")
-		
-		// Field access (no function call following)
-		if ctx.LPAREN() == nil {
-			fmt.Printf("DEBUG: Field access (no method call)\n")
-			
-			// Case 1: Pointer to struct/class
-			if ptrType, ok := base.Type().(*types.PointerType); ok {
-				fmt.Printf("DEBUG: Base is pointer type\n")
-				if structType, ok := ptrType.ElementType.(*types.StructType); ok {
-					fmt.Printf("DEBUG: Element is struct type: %s\n", structType.Name)
-					isClass := v.ctx.IsClassType(structType.Name)
-					fmt.Printf("DEBUG: Is class type: %v\n", isClass)
-					fieldIdx := -1
-					
-					if isClass {
-						fmt.Printf("DEBUG: Looking in ClassFieldIndices for '%s'\n", structType.Name)
-						if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
-							fmt.Printf("DEBUG: Found field indices map: %v\n", fieldIndices)
-							if idx, ok := fieldIndices[memberName]; ok {
-								fieldIdx = idx
-								fmt.Printf("DEBUG: Found field index: %d\n", fieldIdx)
-							}
-						}
-					} else {
-						fieldIdx = v.findFieldIndex(structType, memberName)
-					}
-					
-					if fieldIdx < 0 {
-						v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' has no field '%s'", structType.Name, memberName))
-						return base
-					}
-					
-					gep := v.ctx.Builder.CreateStructGEP(structType, base, fieldIdx, "")
-					return v.ctx.Builder.CreateLoad(structType.Fields[fieldIdx], gep, "")
-				}
-			}
-			
-			// Case 2: Struct value (direct value)
-			if structType, ok := base.Type().(*types.StructType); ok {
+		// Not a namespace access - check for class method
+		fmt.Printf("DEBUG: Not a namespace access, checking for method\n")
+		if ptrType, ok := base.Type().(*types.PointerType); ok {
+			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
 				if v.ctx.IsClassType(structType.Name) {
-					v.ctx.Diagnostics.Error("class instances must be accessed via pointer")
-					return base
+					// Look for a method with the naming convention: ClassName_methodName
+					methodName := structType.Name + "_" + memberName
+					fmt.Printf("DEBUG: Looking for class method: %s\n", methodName)
+					
+					if fn := v.ctx.Module.GetFunction(methodName); fn != nil {
+						fmt.Printf("DEBUG: Found class method: %s\n", methodName)
+						// Store the self pointer to be prepended when the function is called
+						v.pendingMethodSelf = base
+						return fn
+					}
+					
+					// Not a method, fall through to field access
+					fmt.Printf("DEBUG: Not a method, trying field access\n")
 				}
-				
-				fieldIdx := v.findFieldIndex(structType, memberName)
-				if fieldIdx < 0 {
-					v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", memberName))
-					return base
+			}
+		}
+		
+		// Field access
+		return v.handleFieldAccess(base, memberName)
+	}
+	
+	return base
+}
+
+func (v *IRVisitor) handleFieldAccess(base ir.Value, fieldName string) ir.Value {
+	fmt.Printf("DEBUG: handleFieldAccess for field: %s\n", fieldName)
+	
+	// Case 1: Pointer to struct/class
+	if ptrType, ok := base.Type().(*types.PointerType); ok {
+		fmt.Printf("DEBUG: Base is pointer type\n")
+		if structType, ok := ptrType.ElementType.(*types.StructType); ok {
+			fmt.Printf("DEBUG: Element is struct type: %s\n", structType.Name)
+			isClass := v.ctx.IsClassType(structType.Name)
+			fmt.Printf("DEBUG: Is class type: %v\n", isClass)
+			var fieldIdx int = -1
+			
+			if isClass {
+				fmt.Printf("DEBUG: Looking in ClassFieldIndices for '%s'\n", structType.Name)
+				if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
+					fmt.Printf("DEBUG: Found field indices map: %v\n", fieldIndices)
+					if idx, ok := fieldIndices[fieldName]; ok {
+						fieldIdx = idx
+						fmt.Printf("DEBUG: Found field index: %d\n", fieldIdx)
+					}
 				}
-				return v.ctx.Builder.CreateExtractValue(base, []int{fieldIdx}, "")
+			} else {
+				fieldIdx = v.findFieldIndex(structType, fieldName)
 			}
 			
-			v.ctx.Diagnostics.Error(fmt.Sprintf("field access requires struct or class instance"))
+			if fieldIdx < 0 {
+				v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' has no field '%s'", structType.Name, fieldName))
+				return base
+			}
+			
+			gep := v.ctx.Builder.CreateStructGEP(structType, base, fieldIdx, "")
+			return v.ctx.Builder.CreateLoad(structType.Fields[fieldIdx], gep, "")
+		}
+	}
+	
+	// Case 2: Struct value (direct value)
+	if structType, ok := base.Type().(*types.StructType); ok {
+		if v.ctx.IsClassType(structType.Name) {
+			v.ctx.Diagnostics.Error("class instances must be accessed via pointer")
 			return base
 		}
 		
-		// Method call - for now just return base, the LPAREN handler will deal with it
-		// In the future, this is where we'd handle method calls
-		return base
+		fieldIdx := v.findFieldIndex(structType, fieldName)
+		if fieldIdx < 0 {
+			v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", fieldName))
+			return base
+		}
+		return v.ctx.Builder.CreateExtractValue(base, []int{fieldIdx}, "")
 	}
 	
-	// Function call
-	if ctx.LPAREN() != nil {
-		var args []ir.Value
-		if ctx.ArgumentList() != nil {
-			args = v.Visit(ctx.ArgumentList()).([]ir.Value)
-		}
-		
-		fmt.Printf("DEBUG: Function call with %d arguments\n", len(args))
-		for i, arg := range args {
-			fmt.Printf("DEBUG: Arg %d type: %v\n", i, arg.Type())
-		}
-		
-		if fn, ok := base.(*ir.Function); ok {
-			fmt.Printf("DEBUG: Calling function: %s\n", fn.Name())
-			return v.ctx.Builder.CreateCall(fn, args, "")
-		}
-		
-		v.ctx.Diagnostics.Error("cannot call non-function")
-		return base
-	}
-	
+	v.ctx.Diagnostics.Error(fmt.Sprintf("field access requires struct or class instance"))
 	return base
 }
 

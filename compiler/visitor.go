@@ -17,6 +17,10 @@ type IRVisitor struct {
 	// Namespace tracking for externs
 	namespaces       map[string]map[string]*ir.Function
 	currentNamespace string
+	
+	// Method call tracking
+	pendingMethodSelf ir.Value
+	pendingMethodFunc *ir.Function
 }
 
 // NewIRVisitor creates a new IR visitor

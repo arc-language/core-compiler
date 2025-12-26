@@ -1,8 +1,40 @@
+%Client = type { i32 }
+
+@.str.0 = external constant [4 x i8] [i8 37, i8 100, i8 10, i8 0]
+
 declare external i32 @printf(ptr<u8>, ...)
+
+define external i1 @connect(ptr<%Client> %s, ptr<i8> %host) {
+entry:
+  %s.addr = alloca ptr<%Client>
+  store ptr<%Client> %s, ptr<ptr<%Client>> %s.addr
+  %host.addr = alloca ptr<i8>
+  store ptr<i8> %host, ptr<ptr<i8>> %host.addr
+  ret i1 1
+}
+
+define external ptr<%Client> @newClient() {
+entry:
+  %0 = alloca %Client
+  %d.addr = alloca ptr<%Client>
+  store ptr<%Client> %0, ptr<ptr<%Client>> %d.addr
+  %1 = load ptr<%Client>, ptr<ptr<%Client>> %d.addr
+  %2 = getelementptr %Client, ptr<%Client> %1, i32 0, i32 0
+  store i64 1000, ptr<%Client> %2
+  %3 = load ptr<%Client>, ptr<ptr<%Client>> %d.addr
+  ret ptr<%Client> %3
+}
 
 define external i32 @main() {
 entry:
-  %0 = call i32 @printf(i64 0, i64 42)
-  %1 = trunc i64 0 to i32
-  ret i32 %1
+  %4 = call ptr<%Client> @newClient()
+  %client.addr = alloca ptr<%Client>
+  store ptr<%Client> %4, ptr<ptr<%Client>> %client.addr
+  %5 = getelementptr inbounds [4 x i8], ptr<[4 x i8]> %.str.0, i32 0, i32 0
+  %6 = load ptr<%Client>, ptr<ptr<%Client>> %client.addr
+  %7 = getelementptr %Client, ptr<%Client> %6, i32 0, i32 0
+  %8 = load i32, ptr<%Client> %7
+  %9 = call i32 @printf(ptr<[4 x i8]> %5, i32 %8)
+  %10 = trunc i64 0 to i32
+  ret i32 %10
 }
