@@ -216,11 +216,28 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 }
 
 func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext) interface{} {
-	// Check struct literal FIRST
+	// Check struct literal FIRST (before identifier lookup)
 	if ctx.StructLiteral() != nil {
 		return v.Visit(ctx.StructLiteral())
 	}
 	
+	if ctx.Literal() != nil {
+		return v.Visit(ctx.Literal())
+	}
+	
+	if ctx.Expression() != nil {
+		return v.Visit(ctx.Expression())
+	}
+	
+	if ctx.CastExpression() != nil {
+		return v.Visit(ctx.CastExpression())
+	}
+	
+	if ctx.AllocaExpression() != nil {
+		return v.Visit(ctx.AllocaExpression())
+	}
+	
+	// Check identifier LAST (after all other expression types)
 	if ctx.IDENTIFIER() != nil {
 		name := ctx.IDENTIFIER().GetText()
 		sym, ok := v.ctx.currentScope.Lookup(name)
@@ -238,19 +255,6 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		}
 
 		return sym.Value
-	}
-	
-	if ctx.Literal() != nil {
-		return v.Visit(ctx.Literal())
-	}
-	if ctx.Expression() != nil {
-		return v.Visit(ctx.Expression())
-	}
-	if ctx.CastExpression() != nil {
-		return v.Visit(ctx.CastExpression())
-	}
-	if ctx.AllocaExpression() != nil {
-		return v.Visit(ctx.AllocaExpression())
 	}
 	
 	return v.ctx.Builder.ConstInt(types.I64, 0)
