@@ -127,35 +127,50 @@ func (v *IRVisitor) VisitUnaryExpression(ctx *parser.UnaryExpressionContext) int
 
 func (v *IRVisitor) VisitPostfixExpression(ctx *parser.PostfixExpressionContext) interface{} {
 	result := v.Visit(ctx.PrimaryExpression()).(ir.Value)
+	
+	// Track if we're starting with a namespace identifier
+	var baseIdentifier string
+	if primaryCtx := ctx.PrimaryExpression(); primaryCtx != nil {
+		if primaryCtx.IDENTIFIER() != nil {
+			baseIdentifier = primaryCtx.IDENTIFIER().GetText()
+		}
+	}
+	
 	for _, op := range ctx.AllPostfixOp() {
-		result = v.visitPostfixOp(result, op.(*parser.PostfixOpContext))
+		result = v.visitPostfixOp(result, op.(*parser.PostfixOpContext), baseIdentifier)
+		baseIdentifier = "" // Clear after first use
 	}
 	return result
 }
 
-func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) ir.Value {
-	// Add debug output
+func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, baseIdentifier string) ir.Value {
 	fmt.Printf("DEBUG visitPostfixOp: DOT=%v, IDENTIFIER=%v, LPAREN=%v\n", 
 		ctx.DOT() != nil, ctx.IDENTIFIER() != nil, ctx.LPAREN() != nil)
 	
-	// Namespace access
+	// Namespace or field/method access
 	if ctx.DOT() != nil && ctx.IDENTIFIER() != nil {
-		fieldName := ctx.IDENTIFIER().GetText()
-		fmt.Printf("DEBUG: Accessing field/method: %s\n", fieldName)
-		fmt.Printf("DEBUG: Base type: %v\n", base.Type())
+		memberName := ctx.IDENTIFIER().GetText()
+		fmt.Printf("DEBUG: Accessing member: %s\n", memberName)
 		
-		if global, ok := base.(*ir.Global); ok && strings.HasPrefix(global.Name(), "namespace:") {
-			nsName := strings.TrimPrefix(global.Name(), "namespace:")
-			if funcs, ok := v.namespaces[nsName]; ok {
-				if fn, ok := funcs[fieldName]; ok {
+		// Check if this is a namespace.function access
+		// We can detect this if baseIdentifier matches a namespace
+		if baseIdentifier != "" {
+			fmt.Printf("DEBUG: Checking if '%s' is a namespace\n", baseIdentifier)
+			if fns, ok := v.namespaces[baseIdentifier]; ok {
+				fmt.Printf("DEBUG: Found namespace '%s'\n", baseIdentifier)
+				if fn, ok := fns[memberName]; ok {
+					fmt.Printf("DEBUG: Found function '%s' in namespace '%s'\n", memberName, baseIdentifier)
 					return fn
 				}
+				v.ctx.Diagnostics.Error(fmt.Sprintf("function '%s' not found in namespace '%s'", memberName, baseIdentifier))
+				return v.ctx.Builder.ConstInt(types.I64, 0)
 			}
-			v.ctx.Diagnostics.Error(fmt.Sprintf("function '%s' not found in namespace '%s'", fieldName, nsName))
-			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		
-		// Field access (not a method call)
+		// Not a namespace access, handle as field/method access
+		fmt.Printf("DEBUG: Not a namespace access, treating as field/method\n")
+		
+		// Field access (no function call following)
 		if ctx.LPAREN() == nil {
 			fmt.Printf("DEBUG: Field access (no method call)\n")
 			
@@ -172,21 +187,17 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 						fmt.Printf("DEBUG: Looking in ClassFieldIndices for '%s'\n", structType.Name)
 						if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
 							fmt.Printf("DEBUG: Found field indices map: %v\n", fieldIndices)
-							if idx, ok := fieldIndices[fieldName]; ok {
+							if idx, ok := fieldIndices[memberName]; ok {
 								fieldIdx = idx
 								fmt.Printf("DEBUG: Found field index: %d\n", fieldIdx)
-							} else {
-								fmt.Printf("DEBUG: Field '%s' not found in indices\n", fieldName)
 							}
-						} else {
-							fmt.Printf("DEBUG: No field indices found for class '%s'\n", structType.Name)
 						}
 					} else {
-						fieldIdx = v.findFieldIndex(structType, fieldName)
+						fieldIdx = v.findFieldIndex(structType, memberName)
 					}
 					
 					if fieldIdx < 0 {
-						v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' has no field '%s'", structType.Name, fieldName))
+						v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' has no field '%s'", structType.Name, memberName))
 						return base
 					}
 					
@@ -202,17 +213,21 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 					return base
 				}
 				
-				fieldIdx := v.findFieldIndex(structType, fieldName)
+				fieldIdx := v.findFieldIndex(structType, memberName)
 				if fieldIdx < 0 {
-					v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", fieldName))
+					v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", memberName))
 					return base
 				}
 				return v.ctx.Builder.CreateExtractValue(base, []int{fieldIdx}, "")
 			}
 			
-			v.ctx.Diagnostics.Error(fmt.Sprintf("field access requires struct or class instance, got %v", base.Type()))
+			v.ctx.Diagnostics.Error(fmt.Sprintf("field access requires struct or class instance"))
 			return base
 		}
+		
+		// Method call - for now just return base, the LPAREN handler will deal with it
+		// In the future, this is where we'd handle method calls
+		return base
 	}
 	
 	// Function call
@@ -222,7 +237,13 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 			args = v.Visit(ctx.ArgumentList()).([]ir.Value)
 		}
 		
+		fmt.Printf("DEBUG: Function call with %d arguments\n", len(args))
+		for i, arg := range args {
+			fmt.Printf("DEBUG: Arg %d type: %v\n", i, arg.Type())
+		}
+		
 		if fn, ok := base.(*ir.Function); ok {
+			fmt.Printf("DEBUG: Calling function: %s\n", fn.Name())
 			return v.ctx.Builder.CreateCall(fn, args, "")
 		}
 		
@@ -234,7 +255,6 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 }
 
 func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext) interface{} {
-	// DEBUG output
 	fmt.Printf("DEBUG VisitPrimaryExpression:\n")
 	fmt.Printf("  Literal: %v\n", ctx.Literal() != nil)
 	fmt.Printf("  IDENTIFIER: %v", ctx.IDENTIFIER() != nil)
@@ -277,6 +297,15 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		// First check if this is a type name
 		if _, isType := v.ctx.GetType(name); isType {
 			v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' used as value (did you mean '%s{}'?)", name, name))
+			return v.ctx.Builder.ConstInt(types.I64, 0)
+		}
+		
+		// Check if this is a namespace - namespaces don't have values, but we need to return something
+		// so the postfix operator can check the identifier name
+		if _, isNamespace := v.namespaces[name]; isNamespace {
+			fmt.Printf("DEBUG: Identifier '%s' is a namespace\n", name)
+			// Return a dummy value - the postfix operator will use the baseIdentifier parameter
+			// to actually look up the function
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		
@@ -491,8 +520,6 @@ func (v *IRVisitor) VisitAllocaExpression(ctx *parser.AllocaExpressionContext) i
 	
 	return v.ctx.Builder.CreateAlloca(allocType, "")
 }
-
-// visitor_expressions.go - Fixed VisitArgumentList function
 
 func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface{} {
 	args := make([]ir.Value, 0)

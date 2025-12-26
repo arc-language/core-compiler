@@ -6,9 +6,10 @@ import (
 
 // Symbol represents a named value in the symbol table
 type Symbol struct {
-	Name  string
-	Value ir.Value
-	IsConst bool
+	Name      string
+	Value     ir.Value
+	IsConst   bool
+	Namespace string // Which namespace this symbol belongs to
 }
 
 // Scope represents a lexical scope with symbol table
@@ -28,8 +29,8 @@ func NewScope(parent *Scope) *Scope {
 // Define adds a symbol to the current scope
 func (s *Scope) Define(name string, value ir.Value) {
 	s.symbols[name] = &Symbol{
-		Name:  name,
-		Value: value,
+		Name:    name,
+		Value:   value,
 		IsConst: false,
 	}
 }
@@ -37,9 +38,19 @@ func (s *Scope) Define(name string, value ir.Value) {
 // DefineConst adds a constant symbol to the current scope
 func (s *Scope) DefineConst(name string, value ir.Value) {
 	s.symbols[name] = &Symbol{
-		Name:  name,
-		Value: value,
+		Name:    name,
+		Value:   value,
 		IsConst: true,
+	}
+}
+
+// DefineInNamespace adds a symbol with namespace information
+func (s *Scope) DefineInNamespace(name string, value ir.Value, namespace string) {
+	s.symbols[name] = &Symbol{
+		Name:      name,
+		Value:     value,
+		IsConst:   false,
+		Namespace: namespace,
 	}
 }
 

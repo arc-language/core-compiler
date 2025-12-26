@@ -14,6 +14,35 @@ type LoopInfo struct {
 	BreakBlock    *ir.BasicBlock // Where 'break' jumps to
 }
 
+// Namespace represents a named collection of declarations
+type Namespace struct {
+	Name      string
+	Functions map[string]*ir.Function
+	Types     map[string]types.Type
+	Parent    *Namespace
+}
+
+// NewNamespace creates a new namespace
+func NewNamespace(name string, parent *Namespace) *Namespace {
+	return &Namespace{
+		Name:      name,
+		Functions: make(map[string]*ir.Function),
+		Types:     make(map[string]types.Type),
+		Parent:    parent,
+	}
+}
+
+// LookupFunction searches for a function in this namespace and parents
+func (ns *Namespace) LookupFunction(name string) (*ir.Function, bool) {
+	if fn, ok := ns.Functions[name]; ok {
+		return fn, true
+	}
+	if ns.Parent != nil {
+		return ns.Parent.LookupFunction(name)
+	}
+	return nil, false
+}
+
 // Context holds the state during compilation
 type Context struct {
 	Builder     *builder.Builder
@@ -27,6 +56,10 @@ type Context struct {
 	// Symbol tables
 	globalScope *Scope
 	currentScope *Scope
+	
+	// Namespace management
+	rootNamespace    *Namespace
+	currentNamespace *Namespace
 	
 	// Type cache
 	namedTypes map[string]types.Type
@@ -52,6 +85,8 @@ func NewContext(moduleName string) *Context {
 	b := builder.New()
 	mod := b.CreateModule(moduleName)
 	
+	rootNs := NewNamespace("", nil)
+	
 	ctx := &Context{
 		Builder:            b,
 		Module:             mod,
@@ -63,12 +98,56 @@ func NewContext(moduleName string) *Context {
 		classTypes:         make(map[string]bool),
 		deferredStmts:      make([][]ir.Instruction, 0),
 		loopStack:          make([]LoopInfo, 0),
+		rootNamespace:      rootNs,
+		currentNamespace:   rootNs,
 	}
 	
 	ctx.currentScope = ctx.globalScope
 	ctx.registerBuiltinTypes()
 	
 	return ctx
+}
+
+// SetNamespace sets the current namespace
+func (c *Context) SetNamespace(name string) *Namespace {
+	// Check if namespace already exists as child of current
+	for _, ns := range []*Namespace{c.currentNamespace} {
+		if ns.Name == name {
+			c.currentNamespace = ns
+			return ns
+		}
+	}
+	
+	// Create new namespace
+	ns := NewNamespace(name, c.currentNamespace)
+	c.currentNamespace = ns
+	return ns
+}
+
+// GetOrCreateNamespace gets or creates a namespace
+func (c *Context) GetOrCreateNamespace(name string) *Namespace {
+	// Try to find existing namespace starting from root
+	return c.findOrCreateNamespace(c.rootNamespace, name)
+}
+
+func (c *Context) findOrCreateNamespace(parent *Namespace, name string) *Namespace {
+	// This is a simplified version - in production you'd want a proper registry
+	return NewNamespace(name, parent)
+}
+
+// LookupInNamespace looks up a function in a specific namespace
+func (c *Context) LookupInNamespace(namespaceName, functionName string) (*ir.Function, bool) {
+	// For now, simple implementation - you'd want a proper namespace registry
+	// Check if we have an "extern" namespace with this name
+	if namespaceName != "" {
+		// Look in module functions with prefix
+		for _, fn := range c.Module.Functions {
+			if fn.Name() == functionName {
+				return fn, true
+			}
+		}
+	}
+	return nil, false
 }
 
 // registerBuiltinTypes registers primitive and builtin types
@@ -118,6 +197,7 @@ func (c *Context) registerBuiltinTypes() {
 	c.namedTypes["void"] = types.Void
 	c.namedTypes["bool"] = types.I1
 	c.namedTypes["char"] = types.U32 // Unicode code point (uint32)
+	c.namedTypes["string"] = types.NewPointer(types.I8) // For now, *i8
 }
 
 // GetType resolves a type name to a Type

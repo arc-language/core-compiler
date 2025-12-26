@@ -1,5 +1,5 @@
 // example_v8.arc
-namespace main
+namespace main // same as golang package but named namespace
 
 extern c {
     // Socket API

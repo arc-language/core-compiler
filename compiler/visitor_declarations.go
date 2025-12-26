@@ -13,27 +13,35 @@ import (
 // ============================================================================
 
 func (v *IRVisitor) VisitExternDecl(ctx *parser.ExternDeclContext) interface{} {
-	oldNamespace := v.currentNamespace
+	var namespaceName string
 	
 	if ctx.IDENTIFIER() != nil {
-		nsName := ctx.IDENTIFIER().GetText()
-		v.currentNamespace = nsName
+		namespaceName = ctx.IDENTIFIER().GetText()
+		fmt.Printf("DEBUG: Processing extern namespace: %s\n", namespaceName)
 		
-		if _, exists := v.namespaces[nsName]; !exists {
-			v.namespaces[nsName] = make(map[string]*ir.Function)
+		// Store current namespace and switch to extern namespace
+		oldNamespace := v.currentNamespace
+		v.currentNamespace = namespaceName
+		
+		// Ensure namespace map exists
+		if _, exists := v.namespaces[namespaceName]; !exists {
+			v.namespaces[namespaceName] = make(map[string]*ir.Function)
 		}
 		
-		// Create a dummy global to represent the namespace
-		dummyGlobal := &ir.Global{}
-		dummyGlobal.SetName("namespace:" + nsName)
-		v.ctx.currentScope.Define(nsName, dummyGlobal)
+		// Process all extern members
+		for _, member := range ctx.AllExternMember() {
+			v.Visit(member)
+		}
+		
+		// Restore namespace
+		v.currentNamespace = oldNamespace
+	} else {
+		// No namespace, just extern declarations
+		for _, member := range ctx.AllExternMember() {
+			v.Visit(member)
+		}
 	}
 	
-	for _, member := range ctx.AllExternMember() {
-		v.Visit(member)
-	}
-	
-	v.currentNamespace = oldNamespace
 	return nil
 }
 
@@ -67,9 +75,14 @@ func (v *IRVisitor) VisitExternFunctionDecl(ctx *parser.ExternFunctionDeclContex
 	
 	fn := v.ctx.Builder.DeclareFunction(name, retType, paramTypes, variadic)
 	
+	fmt.Printf("DEBUG: Declared extern function: %s in namespace: %s\n", name, v.currentNamespace)
+	
+	// Store in namespace map if we're in a namespace
 	if v.currentNamespace != "" {
 		v.namespaces[v.currentNamespace][name] = fn
+		fmt.Printf("DEBUG: Stored in namespace map: %s.%s\n", v.currentNamespace, name)
 	} else {
+		// Global extern function
 		v.ctx.currentScope.Define(name, fn)
 	}
 	
@@ -79,8 +92,6 @@ func (v *IRVisitor) VisitExternFunctionDecl(ctx *parser.ExternFunctionDeclContex
 // ============================================================================
 // FUNCTION DECLARATIONS
 // ============================================================================
-
-// visitor_declarations.go - Complete corrected VisitFunctionDecl function
 
 func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
