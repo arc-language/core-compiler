@@ -216,8 +216,22 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext) 
 }
 
 func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext) interface{} {
-	// Check struct literal FIRST (before identifier lookup)
+	// DEBUG output
+	fmt.Printf("DEBUG VisitPrimaryExpression:\n")
+	fmt.Printf("  Literal: %v\n", ctx.Literal() != nil)
+	fmt.Printf("  IDENTIFIER: %v", ctx.IDENTIFIER() != nil)
+	if ctx.IDENTIFIER() != nil {
+		fmt.Printf(" (%s)", ctx.IDENTIFIER().GetText())
+	}
+	fmt.Printf("\n")
+	fmt.Printf("  Expression: %v\n", ctx.Expression() != nil)
+	fmt.Printf("  CastExpression: %v\n", ctx.CastExpression() != nil)
+	fmt.Printf("  AllocaExpression: %v\n", ctx.AllocaExpression() != nil)
+	fmt.Printf("  StructLiteral: %v\n", ctx.StructLiteral() != nil)
+	
+	// Check struct literal FIRST
 	if ctx.StructLiteral() != nil {
+		fmt.Printf("DEBUG: Visiting StructLiteral\n")
 		return v.Visit(ctx.StructLiteral())
 	}
 	
@@ -237,9 +251,17 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		return v.Visit(ctx.AllocaExpression())
 	}
 	
-	// Check identifier LAST (after all other expression types)
+	// Check identifier
 	if ctx.IDENTIFIER() != nil {
 		name := ctx.IDENTIFIER().GetText()
+		fmt.Printf("DEBUG: Looking up identifier: %s\n", name)
+		
+		// First check if this is a type name
+		if _, isType := v.ctx.GetType(name); isType {
+			v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' used as value (did you mean '%s{}'?)", name, name))
+			return v.ctx.Builder.ConstInt(types.I64, 0)
+		}
+		
 		sym, ok := v.ctx.currentScope.Lookup(name)
 		if !ok {
 			if fn := v.ctx.Module.GetFunction(name); fn != nil {
