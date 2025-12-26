@@ -1,64 +1,73 @@
 package compiler
 
 import (
+	"fmt"
+
 	"github.com/arc-language/core-builder/ir"
 	"github.com/arc-language/core-parser"
 )
 
 func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
-	// Generate unique suffix for this if statement
-	uniqueID := v.ctx.Builder.generateName()
-	
+	// Generate unique suffix for this if statement using the node's pointer address.
+	// This fixes the "unexported method generateName" error.
+	uniqueID := fmt.Sprintf("%p", ctx)
+
 	mergeBlock := v.ctx.Builder.CreateBlock("if.end." + uniqueID)
-	
+
 	// First if condition
 	cond := v.Visit(ctx.Expression(0)).(ir.Value)
 	thenBlock := v.ctx.Builder.CreateBlock("if.then." + uniqueID)
 	nextCheckBlock := v.ctx.Builder.CreateBlock("if.next." + uniqueID)
-	
+
 	v.ctx.Builder.CreateCondBr(cond, thenBlock, nextCheckBlock)
-	
+
 	// Then block
 	v.ctx.SetInsertBlock(thenBlock)
 	v.Visit(ctx.Block(0))
-	if thenBlock.Terminator() == nil {
+	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 		v.ctx.Builder.CreateBr(mergeBlock)
 	}
-	
+
 	// Handle else-if and else
 	v.ctx.SetInsertBlock(nextCheckBlock)
 	count := len(ctx.AllIF())
-	
+
 	for i := 1; i < count; i++ {
 		cond := v.Visit(ctx.Expression(i)).(ir.Value)
-		thenBlock := v.ctx.Builder.CreateBlock("elseif.then." + uniqueID)
-		newNextBlock := v.ctx.Builder.CreateBlock("elseif.next." + uniqueID)
 		
+		// Append index 'i' to ensure unique block names for multiple else-if clauses
+		thenName := fmt.Sprintf("elseif.then.%s.%d", uniqueID, i)
+		nextName := fmt.Sprintf("elseif.next.%s.%d", uniqueID, i)
+		
+		thenBlock := v.ctx.Builder.CreateBlock(thenName)
+		newNextBlock := v.ctx.Builder.CreateBlock(nextName)
+
 		v.ctx.Builder.CreateCondBr(cond, thenBlock, newNextBlock)
-		
+
 		v.ctx.SetInsertBlock(thenBlock)
 		v.Visit(ctx.Block(i))
-		if thenBlock.Terminator() == nil {
+		if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 			v.ctx.Builder.CreateBr(mergeBlock)
 		}
-		
+
 		v.ctx.SetInsertBlock(newNextBlock)
 	}
-	
+
 	// Final else block (if present)
+	// The number of blocks is count+1 if there is an 'else' clause
 	if len(ctx.AllBlock()) > count {
 		v.Visit(ctx.Block(count))
 	}
-	
-	if v.ctx.currentBlock.Terminator() == nil {
+
+	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 		v.ctx.Builder.CreateBr(mergeBlock)
 	}
-	
-	// Only set insert point to merge block if it has predecessors
+
+	// Only set insert point to merge block if it has predecessors (is reachable)
 	if len(mergeBlock.Predecessors) > 0 {
 		v.ctx.SetInsertBlock(mergeBlock)
 	}
-	
+
 	return nil
 }
 
@@ -73,7 +82,7 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 
 	semicolons := ctx.AllSEMICOLON()
 	isClause := len(semicolons) == 2
-	
+
 	// Initialize statement
 	if isClause {
 		if ctx.VariableDecl() != nil {
@@ -98,10 +107,10 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 	}
 
 	v.ctx.Builder.CreateBr(condBlock)
-	
+
 	// Condition block
 	v.ctx.SetInsertBlock(condBlock)
-	
+
 	var cond ir.Value
 	if isClause {
 		semi1 := semicolons[0]
@@ -124,7 +133,7 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 	}
 
 	v.ctx.Builder.CreateCondBr(cond, bodyBlock, endBlock)
-	
+
 	// Body block
 	v.ctx.SetInsertBlock(bodyBlock)
 	v.ctx.PushLoop(continueTarget, endBlock)
@@ -150,7 +159,7 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 			}
 		}
 	}
-	
+
 	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 		v.ctx.Builder.CreateBr(condBlock)
 	}
