@@ -95,9 +95,13 @@ func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 }
 
 func (v *IRVisitor) VisitClassDecl(ctx *parser.ClassDeclContext) interface{} {
+	name := ctx.IDENTIFIER().GetText()
+	fmt.Printf("DEBUG VisitClassDecl: Processing class %s\n", name)
+	
 	// Type already registered in pass 1
 	// Now compile methods
-	for _, member := range ctx.AllClassMember() {
+	for i, member := range ctx.AllClassMember() {
+		fmt.Printf("DEBUG VisitClassDecl: Processing member %d\n", i)
 		if member.FunctionDecl() != nil {
 			v.Visit(member.FunctionDecl())
 		} else if member.DeinitDecl() != nil {
@@ -105,6 +109,13 @@ func (v *IRVisitor) VisitClassDecl(ctx *parser.ClassDeclContext) interface{} {
 		}
 	}
 	
+	fmt.Printf("DEBUG VisitClassDecl: Completed class %s\n", name)
+	return nil
+}
+
+func (v *IRVisitor) VisitClassField(ctx *parser.ClassFieldContext) interface{} {
+	// Field definitions are handled in registerClassType
+	fmt.Printf("DEBUG VisitClassField: Field %s (should not process here)\n", ctx.IDENTIFIER().GetText())
 	return nil
 }
 
