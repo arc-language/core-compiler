@@ -65,9 +65,20 @@ func (v *IRVisitor) VisitBlock(ctx *parser.BlockContext) interface{} {
 func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) interface{} {
 	lhsCtx := ctx.LeftHandSide()
 	
-	// Variable Assignment
+	fmt.Printf("DEBUG VisitAssignmentStmt:\n")
+	fmt.Printf("  LHS has IDENTIFIER: %v\n", lhsCtx.IDENTIFIER() != nil)
 	if lhsCtx.IDENTIFIER() != nil {
+		fmt.Printf("  LHS IDENTIFIER: %s\n", lhsCtx.IDENTIFIER().GetText())
+	}
+	fmt.Printf("  LHS has STAR: %v\n", lhsCtx.STAR() != nil)
+	fmt.Printf("  LHS has DOT: %v\n", lhsCtx.DOT() != nil)
+	fmt.Printf("  LHS has Expression: %v\n", lhsCtx.Expression() != nil)
+	fmt.Printf("  RHS expression: %s\n", ctx.Expression().GetText())
+	
+	// Variable Assignment
+	if lhsCtx.IDENTIFIER() != nil && lhsCtx.DOT() == nil && lhsCtx.STAR() == nil {
 		name := lhsCtx.IDENTIFIER().GetText()
+		fmt.Printf("DEBUG: Simple variable assignment to: %s\n", name)
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
 		
 		sym, ok := v.ctx.currentScope.Lookup(name)
@@ -92,6 +103,7 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 	
 	// Pointer Assignment (*ptr = val)
 	if lhsCtx.STAR() != nil {
+		fmt.Printf("DEBUG: Pointer dereference assignment\n")
 		ptr := v.Visit(lhsCtx.Expression()).(ir.Value)
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
 		v.ctx.Builder.CreateStore(rhs, ptr)
@@ -100,35 +112,67 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 	
 	// Field Assignment (obj.field = val)
 	if lhsCtx.DOT() != nil {
+		fmt.Printf("DEBUG: Field assignment\n")
 		exprCtx := lhsCtx.Expression()
 		var basePtr ir.Value
 		
 		// Attempt to resolve the variable to get its address (L-Value)
 		exprText := exprCtx.GetText()
+		fmt.Printf("DEBUG: Base expression text: %s\n", exprText)
+		
 		if sym, ok := v.ctx.currentScope.Lookup(exprText); ok {
+			fmt.Printf("DEBUG: Found symbol for base: %s\n", exprText)
 			if alloca, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
 				// Only use the alloca address if it is a Struct
 				if _, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
 					basePtr = alloca
+					fmt.Printf("DEBUG: Using alloca as base pointer\n")
 				}
 			}
 		}
 		
 		if basePtr == nil {
+			fmt.Printf("DEBUG: Fallback - visiting expression for base\n")
 			// Fallback: This correctly handles pointers-to-structs
 			basePtr = v.Visit(exprCtx).(ir.Value)
+			fmt.Printf("DEBUG: Base pointer type: %v\n", basePtr.Type())
 		}
 		
 		fieldName := lhsCtx.IDENTIFIER().GetText()
+		fmt.Printf("DEBUG: Field name: %s\n", fieldName)
 		
 		// Check pointer type to find the struct definition
 		if ptrType, ok := basePtr.Type().(*types.PointerType); ok {
+			fmt.Printf("DEBUG: Base is pointer type\n")
 			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
-				fieldIdx := v.findFieldIndex(structType, fieldName)
+				fmt.Printf("DEBUG: Element is struct type: %s\n", structType.Name)
+				
+				// Check if this is a class type
+				isClass := v.ctx.IsClassType(structType.Name)
+				fmt.Printf("DEBUG: Is class type: %v\n", isClass)
+				
+				var fieldIdx int = -1
+				
+				if isClass {
+					if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
+						if idx, ok := fieldIndices[fieldName]; ok {
+							fieldIdx = idx
+						}
+					}
+				} else {
+					fieldIdx = v.findFieldIndex(structType, fieldName)
+				}
+				
+				fmt.Printf("DEBUG: Field index: %d\n", fieldIdx)
+				
 				if fieldIdx >= 0 {
 					gep := v.ctx.Builder.CreateStructGEP(structType, basePtr, fieldIdx, "")
 					rhs := v.Visit(ctx.Expression()).(ir.Value)
 					v.ctx.Builder.CreateStore(rhs, gep)
+					fmt.Printf("DEBUG: Field assignment completed\n")
+					return nil
+				} else {
+					v.ctx.Diagnostics.Error(fmt.Sprintf("struct/class '%s' has no field '%s'", structType.Name, fieldName))
 					return nil
 				}
 			}
