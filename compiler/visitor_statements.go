@@ -159,16 +159,27 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 				if sym, ok := v.ctx.currentScope.Lookup(varName); ok {
 					fmt.Printf("DEBUG: Found symbol for base: %s\n", varName)
 					if alloca, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
-						// Only use the alloca address if it is a Struct or Class
-						if _, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
-							basePtr = alloca
-							fmt.Printf("DEBUG: Using alloca as base pointer\n")
-						} else if ptrType, isPtr := alloca.AllocatedType.(*types.PointerType); isPtr {
-							// If it's a pointer to struct, load it first
-							if _, isStruct := ptrType.ElementType.(*types.StructType); isStruct {
+						fmt.Printf("DEBUG: Symbol is alloca, allocated type: %v\n", alloca.AllocatedType)
+						
+						// Check what the alloca contains
+						if ptrType, isPtr := alloca.AllocatedType.(*types.PointerType); isPtr {
+							// It's a pointer to something - load it
+							fmt.Printf("DEBUG: Allocated type is pointer to: %v\n", ptrType.ElementType)
+							if structType, isStruct := ptrType.ElementType.(*types.StructType); isStruct {
+								// Load the pointer to the struct
 								basePtr = v.ctx.Builder.CreateLoad(ptrType.ElementType, alloca, "")
-								fmt.Printf("DEBUG: Loaded pointer to struct from alloca\n")
+								fmt.Printf("DEBUG: Loaded pointer to struct from alloca, result type: %v\n", basePtr.Type())
+							} else {
+								// Some other pointer type
+								basePtr = v.ctx.Builder.CreateLoad(ptrType.ElementType, alloca, "")
+								fmt.Printf("DEBUG: Loaded pointer from alloca\n")
 							}
+						} else if structType, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
+							// Direct struct allocation - use the alloca address
+							basePtr = alloca
+							fmt.Printf("DEBUG: Using alloca as base pointer for direct struct\n")
+						} else {
+							fmt.Printf("DEBUG: Allocated type is neither pointer nor struct: %v\n", alloca.AllocatedType)
 						}
 					}
 				}
@@ -177,52 +188,60 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 		
 		if basePtr == nil {
 			fmt.Printf("DEBUG: Fallback - visiting postfix expression for base\n")
-			// Fallback: visit the postfix expression to get the value
 			basePtr = v.Visit(postfixCtx).(ir.Value)
 			fmt.Printf("DEBUG: Base pointer type: %v\n", basePtr.Type())
 		}
 		
 		fieldName := lhsCtx.IDENTIFIER().GetText()
 		fmt.Printf("DEBUG: Field name: %s\n", fieldName)
+		fmt.Printf("DEBUG: basePtr is nil: %v\n", basePtr == nil)
+		if basePtr != nil {
+			fmt.Printf("DEBUG: basePtr type: %v\n", basePtr.Type())
+		}
 		
-		// Check pointer type to find the struct definition
-		if ptrType, ok := basePtr.Type().(*types.PointerType); ok {
-			fmt.Printf("DEBUG: Base is pointer type\n")
-			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
-				fmt.Printf("DEBUG: Element is struct type: %s\n", structType.Name)
-				
-				// Check if this is a class type
-				isClass := v.ctx.IsClassType(structType.Name)
-				fmt.Printf("DEBUG: Is class type: %v\n", isClass)
-				
-				var fieldIdx int = -1
-				
-				if isClass {
-					if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
-						if idx, ok := fieldIndices[fieldName]; ok {
-							fieldIdx = idx
+		// Now basePtr should be a pointer to a struct
+		if basePtr != nil {
+			if ptrType, ok := basePtr.Type().(*types.PointerType); ok {
+				fmt.Printf("DEBUG: Base is pointer type, element: %v\n", ptrType.ElementType)
+				if structType, ok := ptrType.ElementType.(*types.StructType); ok {
+					fmt.Printf("DEBUG: Element is struct type: %s\n", structType.Name)
+					
+					isClass := v.ctx.IsClassType(structType.Name)
+					fmt.Printf("DEBUG: Is class type: %v\n", isClass)
+					
+					var fieldIdx int = -1
+					
+					if isClass {
+						if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
+							if idx, ok := fieldIndices[fieldName]; ok {
+								fieldIdx = idx
+								fmt.Printf("DEBUG: Found field index in class: %d\n", fieldIdx)
+							}
 						}
+					} else {
+						fieldIdx = v.findFieldIndex(structType, fieldName)
+						fmt.Printf("DEBUG: Found field index in struct: %d\n", fieldIdx)
+					}
+					
+					if fieldIdx >= 0 {
+						gep := v.ctx.Builder.CreateStructGEP(structType, basePtr, fieldIdx, "")
+						rhs := v.Visit(ctx.Expression()).(ir.Value)
+						v.ctx.Builder.CreateStore(rhs, gep)
+						fmt.Printf("DEBUG: Field assignment completed successfully\n")
+						return nil
+					} else {
+						v.ctx.Diagnostics.Error(fmt.Sprintf("struct/class '%s' has no field '%s'", structType.Name, fieldName))
+						return nil
 					}
 				} else {
-					fieldIdx = v.findFieldIndex(structType, fieldName)
+					fmt.Printf("DEBUG: Element is not a struct type: %v\n", ptrType.ElementType)
 				}
-				
-				fmt.Printf("DEBUG: Field index: %d\n", fieldIdx)
-				
-				if fieldIdx >= 0 {
-					gep := v.ctx.Builder.CreateStructGEP(structType, basePtr, fieldIdx, "")
-					rhs := v.Visit(ctx.Expression()).(ir.Value)
-					v.ctx.Builder.CreateStore(rhs, gep)
-					fmt.Printf("DEBUG: Field assignment completed\n")
-					return nil
-				} else {
-					v.ctx.Diagnostics.Error(fmt.Sprintf("struct/class '%s' has no field '%s'", structType.Name, fieldName))
-					return nil
-				}
+			} else {
+				fmt.Printf("DEBUG: Base is not a pointer type: %v\n", basePtr.Type())
 			}
 		}
 		
-		v.ctx.Diagnostics.Error("cannot assign to field (invalid struct pointer or unknown field)")
+		v.ctx.Diagnostics.Error(fmt.Sprintf("cannot assign to field (expected pointer to struct, got %v)", basePtr.Type()))
 		return nil
 	}
 
