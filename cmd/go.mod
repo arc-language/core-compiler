@@ -4,7 +4,7 @@ go 1.25.4
 
 require (
 	github.com/arc-language/core-builder v0.0.0-20251222230544-91aac0849f4f
-	github.com/arc-language/core-compiler v0.0.0-20251226202443-1fe3470600f1
+	github.com/arc-language/core-compiler v0.0.0-20251226202632-036096cd7df4
 )
 
 require (

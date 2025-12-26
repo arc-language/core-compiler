@@ -94,6 +94,8 @@ func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 	return nil
 }
 
+// visitor_types.go - Enhanced VisitClassDecl
+
 func (v *IRVisitor) VisitClassDecl(ctx *parser.ClassDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
 	fmt.Printf("DEBUG VisitClassDecl: Processing class %s\n", name)
@@ -101,11 +103,15 @@ func (v *IRVisitor) VisitClassDecl(ctx *parser.ClassDeclContext) interface{} {
 	// Type already registered in pass 1
 	// Now compile methods
 	for i, member := range ctx.AllClassMember() {
-		fmt.Printf("DEBUG VisitClassDecl: Processing member %d\n", i)
+		fmt.Printf("DEBUG VisitClassDecl: Processing member %d of %d\n", i, len(ctx.AllClassMember()))
 		if member.FunctionDecl() != nil {
+			fmt.Printf("DEBUG VisitClassDecl: Member %d is a function\n", i)
 			v.Visit(member.FunctionDecl())
 		} else if member.DeinitDecl() != nil {
+			fmt.Printf("DEBUG VisitClassDecl: Member %d is deinit\n", i)
 			v.Visit(member.DeinitDecl())
+		} else if member.ClassField() != nil {
+			fmt.Printf("DEBUG VisitClassDecl: Member %d is a field (skipping)\n", i)
 		}
 	}
 	

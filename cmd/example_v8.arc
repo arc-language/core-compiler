@@ -9,11 +9,11 @@ extern c {
 class Client {
     port: int32
     
-    func connect(self c: *Client, host: string) bool {
+    func connect(self s: *Client, host: string) bool {
         return true
     }
     
-    deinit(self c: *Client) {
+    deinit(self s: *Client) {
         // cleanup when ref count hits 0
     }
 }
