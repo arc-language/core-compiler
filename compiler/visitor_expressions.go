@@ -492,10 +492,28 @@ func (v *IRVisitor) VisitAllocaExpression(ctx *parser.AllocaExpressionContext) i
 	return v.ctx.Builder.CreateAlloca(allocType, "")
 }
 
+// visitor_expressions.go - Fixed VisitArgumentList function
+
 func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface{} {
 	args := make([]ir.Value, 0)
-	for _, expr := range ctx.AllExpression() {
-		args = append(args, v.Visit(expr).(ir.Value))
+	fmt.Printf("DEBUG VisitArgumentList: %d expressions\n", len(ctx.AllExpression()))
+	
+	for i, expr := range ctx.AllExpression() {
+		fmt.Printf("DEBUG: Processing argument %d\n", i)
+		arg := v.Visit(expr)
+		if arg == nil {
+			fmt.Printf("DEBUG: Argument %d is nil, skipping\n", i)
+			continue
+		}
+		argVal, ok := arg.(ir.Value)
+		if !ok {
+			fmt.Printf("DEBUG: Argument %d is not ir.Value (type: %T), skipping\n", i, arg)
+			continue
+		}
+		fmt.Printf("DEBUG: Argument %d type: %v\n", i, argVal.Type())
+		args = append(args, argVal)
 	}
+	
+	fmt.Printf("DEBUG VisitArgumentList: returning %d args\n", len(args))
 	return args
 }
