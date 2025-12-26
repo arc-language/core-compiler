@@ -132,11 +132,6 @@ func (v *IRVisitor) VisitClassMember(ctx *parser.ClassMemberContext) interface{}
 	return nil
 }
 
-func (v *IRVisitor) VisitClassField(ctx *parser.ClassFieldContext) interface{} {
-	// Field definitions are handled in registerClassType
-	return nil
-}
-
 func (v *IRVisitor) VisitDeinitDecl(ctx *parser.DeinitDeclContext) interface{} {
 	// TODO: Implement deinit as a special destructor function
 	// This will be called when reference count reaches zero
