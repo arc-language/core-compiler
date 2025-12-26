@@ -130,7 +130,10 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 // ============================================================================
 
 func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) interface{} {
+	fmt.Printf("DEBUG VisitCompilationUnit: Starting compilation\n")
+	
 	// Pass 1: Register all type declarations (structs and classes)
+	fmt.Printf("DEBUG VisitCompilationUnit: Pass 1 - Registering types\n")
 	for _, decl := range ctx.AllTopLevelDecl() {
 		if decl.StructDecl() != nil {
 			v.registerStructType(decl.StructDecl().(*parser.StructDeclContext))
@@ -140,6 +143,7 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 	}
 	
 	// Pass 2: Process everything else
+	fmt.Printf("DEBUG VisitCompilationUnit: Pass 2 - Processing declarations\n")
 	for _, ns := range ctx.AllNamespaceDecl() {
 		v.Visit(ns)
 	}
@@ -148,19 +152,30 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 		v.Visit(imp)
 	}
 	
-	for _, decl := range ctx.AllTopLevelDecl() {
+	for i, decl := range ctx.AllTopLevelDecl() {
+		fmt.Printf("DEBUG VisitCompilationUnit: Processing top-level decl %d\n", i)
 		if decl.FunctionDecl() != nil {
+			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is function\n", i)
 			v.Visit(decl.FunctionDecl())
 		} else if decl.ExternDecl() != nil {
+			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is extern\n", i)
 			v.Visit(decl.ExternDecl())
 		} else if decl.ConstDecl() != nil {
+			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is const\n", i)
 			v.Visit(decl.ConstDecl())
 		} else if decl.VariableDecl() != nil {
+			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is variable\n", i)
 			v.Visit(decl.VariableDecl())
+		} else if decl.StructDecl() != nil {
+			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is struct - processing methods\n", i)
+			v.Visit(decl.StructDecl())
+		} else if decl.ClassDecl() != nil {
+			fmt.Printf("DEBUG VisitCompilationUnit: Decl %d is class - processing methods\n", i)
+			v.Visit(decl.ClassDecl())
 		}
-		// Structs and classes already processed in pass 1
 	}
 	
+	fmt.Printf("DEBUG VisitCompilationUnit: Compilation complete\n")
 	return nil
 }
 
