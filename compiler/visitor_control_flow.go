@@ -176,11 +176,12 @@ func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
 
 	// 1. Unpack the Range Expression
 	// The grammar wraps the range deeply: Expression -> LogicalOr -> ... -> Range
-	// We need to drill down to find the specific range components.
 	expr := ctx.Expression(0)
 	
+	// FIX: Use interface type, not struct pointer
+	var rngCtx parser.IRangeExpressionContext
+	
 	// Safe navigation down the AST to find RangeExpression
-	var rngCtx *parser.RangeExpressionContext
 	if lor := expr.LogicalOrExpression(); lor != nil {
 		if land := lor.LogicalAndExpression(0); land != nil {
 			if eq := land.EqualityExpression(0); eq != nil {
