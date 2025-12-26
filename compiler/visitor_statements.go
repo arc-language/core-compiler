@@ -5,6 +5,7 @@ import (
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
+	"github.com/arc-language/core-builder/types"
 	"github.com/arc-language/core-parser"
 )
 

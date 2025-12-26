@@ -133,9 +133,9 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 	// Pass 1: Register all type declarations (structs and classes)
 	for _, decl := range ctx.AllTopLevelDecl() {
 		if decl.StructDecl() != nil {
-			v.registerStructType(decl.StructDecl())
+			v.registerStructType(decl.StructDecl().(*parser.StructDeclContext))
 		} else if decl.ClassDecl() != nil {
-			v.registerClassType(decl.ClassDecl())
+			v.registerClassType(decl.ClassDecl().(*parser.ClassDeclContext))
 		}
 	}
 	
