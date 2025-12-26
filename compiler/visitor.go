@@ -882,16 +882,44 @@ func (v *IRVisitor) VisitStructLiteral(ctx *parser.StructLiteralContext) interfa
 	name := ctx.IDENTIFIER().GetText()
 	typ, ok := v.ctx.GetType(name)
 	if !ok {
-		v.ctx.Diagnostics.Error("unknown struct type: " + name)
+		v.ctx.Diagnostics.Error("unknown struct/class type: " + name)
 		return v.ctx.Builder.ConstInt(types.I64, 0)
 	}
 	structType, ok := typ.(*types.StructType)
 	if !ok {
-		v.ctx.Diagnostics.Error(name + " is not a struct type")
+		v.ctx.Diagnostics.Error(name + " is not a struct/class type")
 		return v.ctx.Builder.ConstInt(types.I64, 0)
 	}
 
-	// Start with undefined/zero struct
+	// Check if this is a class (requires heap allocation)
+	if v.ctx.IsClassType(name) {
+		// Allocate on heap for class instances
+		// For now, use alloca (should be malloc in production)
+		ptrToClass := v.ctx.Builder.CreateAlloca(structType, name+".instance")
+		
+		// Initialize fields
+		for _, field := range ctx.AllFieldInit() {
+			fieldName := field.IDENTIFIER().GetText()
+			fieldVal := v.Visit(field.Expression()).(ir.Value)
+			
+			var idx int
+			if fieldIndices, ok := v.ctx.ClassFieldIndices[name]; ok {
+				if fieldIdx, ok := fieldIndices[fieldName]; ok {
+					idx = fieldIdx
+				} else {
+					v.ctx.Diagnostics.Error(fmt.Sprintf("class %s has no field %s", name, fieldName))
+					continue
+				}
+			}
+			
+			gep := v.ctx.Builder.CreateStructGEP(structType, ptrToClass, idx, "")
+			v.ctx.Builder.CreateStore(fieldVal, gep)
+		}
+		
+		return ptrToClass
+	}
+
+	// Regular struct - build value directly
 	var agg ir.Value = v.ctx.Builder.ConstZero(structType)
 
 	// Populate fields
