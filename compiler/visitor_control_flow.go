@@ -8,9 +8,10 @@ import (
 )
 
 func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
-	// Generate unique suffix for this if statement using the node's pointer address.
-	// This fixes the "unexported method generateName" error.
-	uniqueID := fmt.Sprintf("%p", ctx)
+	// Generate unique suffix based on the source position (Line_Column).
+	// This ensures a unique, deterministic ID for every if-statement.
+	token := ctx.GetStart()
+	uniqueID := fmt.Sprintf("%d_%d", token.GetLine(), token.GetColumn())
 
 	mergeBlock := v.ctx.Builder.CreateBlock("if.end." + uniqueID)
 
@@ -24,6 +25,8 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	// Then block
 	v.ctx.SetInsertBlock(thenBlock)
 	v.Visit(ctx.Block(0))
+	
+	// Ensure we don't double-terminate if the block already has a return/break
 	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 		v.ctx.Builder.CreateBr(mergeBlock)
 	}
@@ -35,7 +38,7 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	for i := 1; i < count; i++ {
 		cond := v.Visit(ctx.Expression(i)).(ir.Value)
 		
-		// Append index 'i' to ensure unique block names for multiple else-if clauses
+		// Use index 'i' to ensure unique block names for else-if chains
 		thenName := fmt.Sprintf("elseif.then.%s.%d", uniqueID, i)
 		nextName := fmt.Sprintf("elseif.next.%s.%d", uniqueID, i)
 		
@@ -63,7 +66,8 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 		v.ctx.Builder.CreateBr(mergeBlock)
 	}
 
-	// Only set insert point to merge block if it has predecessors (is reachable)
+	// Only set insert point to merge block if it has predecessors (is reachable).
+	// If both 'if' and 'else' return, mergeBlock is unreachable and should be ignored.
 	if len(mergeBlock.Predecessors) > 0 {
 		v.ctx.SetInsertBlock(mergeBlock)
 	}
@@ -79,6 +83,10 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 	if ctx.IN() != nil {
 		return v.visitForInLoop(ctx)
 	}
+
+	// Use Line_Column for loop blocks too, to prevent collisions in nested loops
+	token := ctx.GetStart()
+	uniqueID := fmt.Sprintf("%d_%d", token.GetLine(), token.GetColumn())
 
 	semicolons := ctx.AllSEMICOLON()
 	isClause := len(semicolons) == 2
@@ -96,10 +104,10 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 		}
 	}
 
-	condBlock := v.ctx.Builder.CreateBlock("loop.cond")
-	bodyBlock := v.ctx.Builder.CreateBlock("loop.body")
-	postBlock := v.ctx.Builder.CreateBlock("loop.post")
-	endBlock := v.ctx.Builder.CreateBlock("loop.end")
+	condBlock := v.ctx.Builder.CreateBlock("loop.cond." + uniqueID)
+	bodyBlock := v.ctx.Builder.CreateBlock("loop.body." + uniqueID)
+	postBlock := v.ctx.Builder.CreateBlock("loop.post." + uniqueID)
+	endBlock := v.ctx.Builder.CreateBlock("loop.end." + uniqueID)
 
 	continueTarget := condBlock
 	if isClause {
@@ -169,7 +177,6 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 }
 
 func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
-	// TODO: Implement for-in loop iteration
 	v.ctx.Diagnostics.Warning("for-in loops are not yet fully implemented")
 	v.Visit(ctx.Block())
 	return nil

@@ -64,8 +64,8 @@ entry:
   %13 = getelementptr %TcpClient, ptr<%TcpClient> %12, i32 0, i32 0
   %14 = load i32, ptr<%TcpClient> %13
   %15 = icmp slt i32 %14, 0
-  br i1 %15, label %if.then, label %if.next
-if.end:
+  br i1 %15, label %if.then.0xc00048d380, label %if.next.0xc00048d380
+if.end.0xc00048d380:
   %18 = alloca u8, i64 16
   %addr.addr = alloca ptr<u8>
   store ptr<u8> %18, ptr<ptr<u8>> %addr.addr
@@ -110,19 +110,19 @@ if.end:
   store i32 %44, ptr<i32> %res.addr
   %45 = load i32, ptr<i32> %res.addr
   %46 = icmp slt i32 %45, 0
-  br i1 %46, label %if.then, label %if.next
-if.then:
+  br i1 %46, label %if.then.0xc00046f400, label %if.next.0xc00046f400
+if.then.0xc00048d380:
   %16 = getelementptr inbounds [25 x i8], ptr<[25 x i8]> %.str.0, i32 0, i32 0
   %17 = call i32 @printf(ptr<[25 x i8]> %16)
   ret i1 0
-if.next:
-  br label %if.end
-if.end:
+if.next.0xc00048d380:
+  br label %if.end.0xc00048d380
+if.end.0xc00046f400:
   %55 = load ptr<%TcpClient>, ptr<ptr<%TcpClient>> %s.addr
   %56 = getelementptr %TcpClient, ptr<%TcpClient> %55, i32 0, i32 1
   store i1 1, ptr<%TcpClient> %56
   ret i1 1
-if.then:
+if.then.0xc00046f400:
   %47 = getelementptr inbounds [28 x i8], ptr<[28 x i8]> %.str.1, i32 0, i32 0
   %48 = load ptr<i8>, ptr<ptr<i8>> %host.addr
   %49 = load u16, ptr<u16> %port.addr
@@ -132,8 +132,8 @@ if.then:
   %53 = load i32, ptr<%TcpClient> %52
   %54 = call i32 @close(i32 %53)
   ret i1 0
-if.next:
-  br label %if.end
+if.next.0xc00046f400:
+  br label %if.end.0xc00046f400
 }
 
 define external i64 @TcpClient_send(ptr<%TcpClient> %s, ptr<i8> %data, i64 %len) {
@@ -148,8 +148,8 @@ entry:
   %58 = getelementptr %TcpClient, ptr<%TcpClient> %57, i32 0, i32 1
   %59 = load i1, ptr<%TcpClient> %58
   %60 = xor i1 %59, 1
-  br i1 %60, label %if.then, label %if.next
-if.end:
+  br i1 %60, label %if.then.0xc0001a7000, label %if.next.0xc0001a7000
+if.end.0xc0001a7000:
   %62 = load ptr<%TcpClient>, ptr<ptr<%TcpClient>> %s.addr
   %63 = getelementptr %TcpClient, ptr<%TcpClient> %62, i32 0, i32 0
   %64 = load i32, ptr<%TcpClient> %63
@@ -157,11 +157,11 @@ if.end:
   %66 = load i64, ptr<i64> %len.addr
   %67 = call i64 @send(i32 %64, ptr<i8> %65, i64 %66, i64 0)
   ret i64 %67
-if.then:
+if.then.0xc0001a7000:
   %61 = sub i64 0, 1
   ret i64 %61
-if.next:
-  br label %if.end
+if.next.0xc0001a7000:
+  br label %if.end.0xc0001a7000
 }
 
 define external i64 @TcpClient_recv(ptr<%TcpClient> %s, ptr<u8> %buffer, i64 %len) {
@@ -176,8 +176,8 @@ entry:
   %69 = getelementptr %TcpClient, ptr<%TcpClient> %68, i32 0, i32 1
   %70 = load i1, ptr<%TcpClient> %69
   %71 = xor i1 %70, 1
-  br i1 %71, label %if.then, label %if.next
-if.end:
+  br i1 %71, label %if.then.0xc00011c800, label %if.next.0xc00011c800
+if.end.0xc00011c800:
   %73 = load ptr<%TcpClient>, ptr<ptr<%TcpClient>> %s.addr
   %74 = getelementptr %TcpClient, ptr<%TcpClient> %73, i32 0, i32 0
   %75 = load i32, ptr<%TcpClient> %74
@@ -185,11 +185,11 @@ if.end:
   %77 = load i64, ptr<i64> %len.addr
   %78 = call i64 @recv(i32 %75, ptr<u8> %76, i64 %77, i64 0)
   ret i64 %78
-if.then:
+if.then.0xc00011c800:
   %72 = sub i64 0, 1
   ret i64 %72
-if.next:
-  br label %if.end
+if.next.0xc00011c800:
+  br label %if.end.0xc00011c800
 }
 
 define external ptr<%TcpClient> @newTcpClient() {
@@ -216,11 +216,11 @@ entry:
   %87 = load ptr<%TcpClient>, ptr<ptr<%TcpClient>> %client.addr
   %88 = getelementptr inbounds [10 x i8], ptr<[10 x i8]> %.str.2, i32 0, i32 0
   %89 = call i1 @TcpClient_connect(ptr<%TcpClient> %87, ptr<[10 x i8]> %88, i64 8080)
-  br i1 %89, label %if.then, label %if.next
-if.end:
+  br i1 %89, label %if.then.0xc0004a6700, label %if.next.0xc0004a6700
+if.end.0xc0004a6700:
   %108 = trunc i64 0 to i32
   ret i32 %108
-if.then:
+if.then.0xc0004a6700:
   %90 = getelementptr inbounds [12 x i8], ptr<[12 x i8]> %.str.3, i32 0, i32 0
   %91 = call i32 @printf(ptr<[12 x i8]> %90)
   %92 = load ptr<%TcpClient>, ptr<ptr<%TcpClient>> %client.addr
@@ -240,15 +240,16 @@ if.then:
   store i64 %102, ptr<i64> %n.addr
   %103 = load i64, ptr<i64> %n.addr
   %104 = icmp sgt i64 %103, 0
-  br i1 %104, label %if.then, label %if.next
-if.next:
-  br label %if.end
-if.end:
-if.then:
+  br i1 %104, label %if.then.0xc00043eb80, label %if.next.0xc00043eb80
+if.next.0xc0004a6700:
+  br label %if.end.0xc0004a6700
+if.end.0xc00043eb80:
+  br label %if.end.0xc0004a6700
+if.then.0xc00043eb80:
   %105 = getelementptr inbounds [14 x i8], ptr<[14 x i8]> %.str.6, i32 0, i32 0
   %106 = load ptr<u8>, ptr<ptr<u8>> %buf.addr
   %107 = call i32 @printf(ptr<[14 x i8]> %105, ptr<u8> %106)
-  br label %if.end
-if.next:
-  br label %if.end
+  br label %if.end.0xc00043eb80
+if.next.0xc00043eb80:
+  br label %if.end.0xc00043eb80
 }
