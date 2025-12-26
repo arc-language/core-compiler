@@ -143,6 +143,11 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 }
 
 func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
+	fmt.Printf("DEBUG VisitReturnStmt: Has expression: %v\n", ctx.Expression() != nil)
+	if ctx.Expression() != nil {
+		fmt.Printf("DEBUG VisitReturnStmt: Expression text: %s\n", ctx.Expression().GetText())
+	}
+	
 	// Execute deferred statements
 	deferred := v.ctx.GetDeferredStmts()
 	for i := len(deferred) - 1; i >= 0; i-- {
@@ -150,7 +155,9 @@ func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 	}
 	
 	if ctx.Expression() != nil {
+		fmt.Printf("DEBUG VisitReturnStmt: About to visit return expression\n")
 		retVal := v.Visit(ctx.Expression()).(ir.Value)
+		fmt.Printf("DEBUG VisitReturnStmt: Return value type: %v\n", retVal.Type())
 		
 		// Cast to expected return type if needed
 		if v.ctx.currentFunction != nil {
@@ -161,10 +168,13 @@ func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 		}
 		
 		v.ctx.Builder.CreateRet(retVal)
+		fmt.Printf("DEBUG VisitReturnStmt: Created return instruction\n")
 	} else {
 		v.ctx.Builder.CreateRetVoid()
+		fmt.Printf("DEBUG VisitReturnStmt: Created void return\n")
 	}
 	
+	fmt.Printf("DEBUG VisitReturnStmt: completed\n")
 	return nil
 }
 
