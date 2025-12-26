@@ -1,2 +1,0 @@
-Hello from Arc Language!
-This is a text file test.

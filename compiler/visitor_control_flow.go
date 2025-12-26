@@ -4,12 +4,12 @@ import (
 	"fmt"
 
 	"github.com/arc-language/core-builder/ir"
+	"github.com/arc-language/core-builder/types"
 	"github.com/arc-language/core-parser"
 )
 
 func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	// Generate unique suffix based on the source position (Line_Column).
-	// This ensures a unique, deterministic ID for every if-statement.
 	token := ctx.GetStart()
 	uniqueID := fmt.Sprintf("%d_%d", token.GetLine(), token.GetColumn())
 
@@ -25,8 +25,6 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	// Then block
 	v.ctx.SetInsertBlock(thenBlock)
 	v.Visit(ctx.Block(0))
-	
-	// Ensure we don't double-terminate if the block already has a return/break
 	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
 		v.ctx.Builder.CreateBr(mergeBlock)
 	}
@@ -57,7 +55,6 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	}
 
 	// Final else block (if present)
-	// The number of blocks is count+1 if there is an 'else' clause
 	if len(ctx.AllBlock()) > count {
 		v.Visit(ctx.Block(count))
 	}
@@ -66,11 +63,8 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 		v.ctx.Builder.CreateBr(mergeBlock)
 	}
 
-	// Only set insert point to merge block if it has predecessors (is reachable).
-	// If both 'if' and 'else' return, mergeBlock is unreachable and should be ignored.
-	if len(mergeBlock.Predecessors) > 0 {
-		v.ctx.SetInsertBlock(mergeBlock)
-	}
+	// Always set insert point to merge block
+	v.ctx.SetInsertBlock(mergeBlock)
 
 	return nil
 }
@@ -84,7 +78,7 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 		return v.visitForInLoop(ctx)
 	}
 
-	// Use Line_Column for loop blocks too, to prevent collisions in nested loops
+	// Standard for-loop (C-style)
 	token := ctx.GetStart()
 	uniqueID := fmt.Sprintf("%d_%d", token.GetLine(), token.GetColumn())
 
@@ -177,8 +171,102 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 }
 
 func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
-	v.ctx.Diagnostics.Warning("for-in loops are not yet fully implemented")
+	// Format: for IDENTIFIER in EXPRESSION { BLOCK }
+	varName := ctx.IDENTIFIER(0).GetText()
+
+	// 1. Unpack the Range Expression
+	// The grammar wraps the range deeply: Expression -> LogicalOr -> ... -> Range
+	// We need to drill down to find the specific range components.
+	expr := ctx.Expression(0)
+	
+	// Safe navigation down the AST to find RangeExpression
+	var rngCtx *parser.RangeExpressionContext
+	if lor := expr.LogicalOrExpression(); lor != nil {
+		if land := lor.LogicalAndExpression(0); land != nil {
+			if eq := land.EqualityExpression(0); eq != nil {
+				if rel := eq.RelationalExpression(0); rel != nil {
+					rngCtx = rel.RangeExpression(0)
+				}
+			}
+		}
+	}
+
+	// Check if we actually found a range ".."
+	if rngCtx == nil || rngCtx.RANGE() == nil {
+		v.ctx.Diagnostics.Error("for-in loop expects a range (e.g., 1..10)")
+		return nil
+	}
+
+	// 2. Evaluate Start and End
+	startVal := v.Visit(rngCtx.AdditiveExpression(0)).(ir.Value)
+	endVal := v.Visit(rngCtx.AdditiveExpression(1)).(ir.Value)
+
+	// Basic type check
+	if !startVal.Type().Equal(endVal.Type()) {
+		// In a production compiler, insert implicit cast here.
+		// For now, assume they match (e.g. both i64 literals)
+	}
+
+	// 3. Setup Loop Variable
+	// Allocate stack space for 'x'
+	loopVarType := startVal.Type()
+	loopVarPtr := v.ctx.Builder.CreateAlloca(loopVarType, varName+".addr")
+	
+	// Initialize 'x = start'
+	v.ctx.Builder.CreateStore(startVal, loopVarPtr)
+	
+	// Register 'x' in the current scope so the block can see it
+	v.ctx.currentScope.Define(varName, loopVarPtr)
+
+	// 4. Create Blocks
+	token := ctx.GetStart()
+	uniqueID := fmt.Sprintf("%d_%d", token.GetLine(), token.GetColumn())
+	
+	condBlock := v.ctx.Builder.CreateBlock("for.cond." + uniqueID)
+	bodyBlock := v.ctx.Builder.CreateBlock("for.body." + uniqueID)
+	stepBlock := v.ctx.Builder.CreateBlock("for.step." + uniqueID)
+	endBlock := v.ctx.Builder.CreateBlock("for.end." + uniqueID)
+
+	v.ctx.Builder.CreateBr(condBlock)
+
+	// 5. Condition Block: if x < end
+	v.ctx.SetInsertBlock(condBlock)
+	currVal := v.ctx.Builder.CreateLoad(loopVarType, loopVarPtr, "")
+	
+	// Create comparison (Signed Less Than)
+	cmp := v.ctx.Builder.CreateICmpSLT(currVal, endVal, "")
+	v.ctx.Builder.CreateCondBr(cmp, bodyBlock, endBlock)
+
+	// 6. Body Block
+	v.ctx.SetInsertBlock(bodyBlock)
+	// 'continue' goes to step, 'break' goes to end
+	v.ctx.PushLoop(stepBlock, endBlock) 
 	v.Visit(ctx.Block())
+	v.ctx.PopLoop()
+
+	if v.ctx.Builder.GetInsertBlock().Terminator() == nil {
+		v.ctx.Builder.CreateBr(stepBlock)
+	}
+
+	// 7. Step Block: x = x + 1
+	v.ctx.SetInsertBlock(stepBlock)
+	currValForStep := v.ctx.Builder.CreateLoad(loopVarType, loopVarPtr, "")
+	
+	// Create constant '1' with correct type
+	var one ir.Constant
+	if intType, ok := loopVarType.(*types.IntType); ok {
+		one = v.ctx.Builder.ConstInt(intType, 1)
+	} else {
+		// Fallback for non-int types (shouldn't happen in simple ranges)
+		one = v.ctx.Builder.ConstInt(types.I64, 1)
+	}
+
+	nextVal := v.ctx.Builder.CreateAdd(currValForStep, one, "")
+	v.ctx.Builder.CreateStore(nextVal, loopVarPtr)
+	v.ctx.Builder.CreateBr(condBlock)
+
+	// 8. End Block
+	v.ctx.SetInsertBlock(endBlock)
 	return nil
 }
 
