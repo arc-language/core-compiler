@@ -169,7 +169,9 @@ func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 }
 
 func (v *IRVisitor) VisitExpressionStmt(ctx *parser.ExpressionStmtContext) interface{} {
-	v.Visit(ctx.Expression())
+	fmt.Printf("DEBUG VisitExpressionStmt: expression text = %s\n", ctx.Expression().GetText())
+	result := v.Visit(ctx.Expression())
+	fmt.Printf("DEBUG VisitExpressionStmt: completed\n")
 	return nil
 }
 
