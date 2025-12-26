@@ -51,7 +51,13 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 		v.ctx.Builder.CreateBr(mergeBlock)
 	}
 	
-	v.ctx.SetInsertBlock(mergeBlock)
+	// ONLY set insert point to merge block if it has predecessors
+	// (i.e., if any branch actually jumps to it)
+	if len(mergeBlock.Predecessors) > 0 {
+		v.ctx.SetInsertBlock(mergeBlock)
+	}
+	// Otherwise, leave the insert point wherever it is (likely unreachable)
+	
 	return nil
 }
 
