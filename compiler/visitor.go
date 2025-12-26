@@ -5,7 +5,6 @@ import (
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
-	"github.com/arc-language/core-builder/types"
 	"github.com/arc-language/core-parser"
 )
 
@@ -20,7 +19,6 @@ type IRVisitor struct {
 	
 	// Method call tracking
 	pendingMethodSelf ir.Value
-	pendingMethodFunc *ir.Function
 }
 
 // NewIRVisitor creates a new IR visitor
@@ -120,6 +118,10 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitCastExpression(ctx)
 	case *parser.AllocaExpressionContext:
 		return v.VisitAllocaExpression(ctx)
+	// --- ADDED THIS CASE ---
+	case *parser.SyscallExpressionContext:
+		return v.VisitSyscallExpression(ctx)
+	// -----------------------
 	case *parser.ArgumentListContext:
 		return v.VisitArgumentList(ctx)
 	case *parser.LeftHandSideContext:
@@ -245,13 +247,11 @@ func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 	}
 	
 	if typeCtx.VectorType() != nil {
-		// TODO: Implement vector types
 		v.ctx.Diagnostics.Warning("vector types not yet implemented")
 		return types.I64
 	}
 	
 	if typeCtx.MapType() != nil {
-		// TODO: Implement map types
 		v.ctx.Diagnostics.Warning("map types not yet implemented")
 		return types.I64
 	}

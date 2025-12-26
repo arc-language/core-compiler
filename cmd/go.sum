@@ -2,6 +2,8 @@ github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYW
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
 github.com/arc-language/core-builder v0.0.0-20251222230544-91aac0849f4f h1:cqLay64TCHtwS8HNkSpwRCHLUXTqgrzGuST4uvPL+Ys=
 github.com/arc-language/core-builder v0.0.0-20251222230544-91aac0849f4f/go.mod h1:19aJJsZ3HkyQ3IBjxjhVjmeiThxFcPqvhP1YPFWqj+M=
+github.com/arc-language/core-builder v0.0.0-20251226233346-9519615b4fb2 h1:XEv1HBgOOKVO4IYBvqk2hUWcW/I6V9ILGBPEH04PjNw=
+github.com/arc-language/core-builder v0.0.0-20251226233346-9519615b4fb2/go.mod h1:19aJJsZ3HkyQ3IBjxjhVjmeiThxFcPqvhP1YPFWqj+M=
 github.com/arc-language/core-codegen v0.0.0-20251223194808-5db44bb9f202 h1:yTrmtkr9q7lpwHiu6gdLBaNYJPByOz8EQ3x/F63r498=
 github.com/arc-language/core-codegen v0.0.0-20251223194808-5db44bb9f202/go.mod h1:+PZFdeewFhSYo+OuOcwbQ06W61cMmVohZsctmIdpfVY=
 github.com/arc-language/core-codegen v0.0.0-20251224004423-bf80a81c60a9 h1:8wIVhSE/G0ka2Do81dQbnLpyp0rzx7uKC80T7m29PIQ=
@@ -12,6 +14,8 @@ github.com/arc-language/core-codegen v0.0.0-20251224013405-02316000c81c h1:bToKB
 github.com/arc-language/core-codegen v0.0.0-20251224013405-02316000c81c/go.mod h1:+PZFdeewFhSYo+OuOcwbQ06W61cMmVohZsctmIdpfVY=
 github.com/arc-language/core-codegen v0.0.0-20251226214137-285efc2fe8fe h1:wWMpU7WPE5rvTOLUiizrp+7l2K99KlDKcA9zYID6amE=
 github.com/arc-language/core-codegen v0.0.0-20251226214137-285efc2fe8fe/go.mod h1:+PZFdeewFhSYo+OuOcwbQ06W61cMmVohZsctmIdpfVY=
+github.com/arc-language/core-codegen v0.0.0-20251226233434-a2a624ecabc0 h1:86nr+3DDMFp6Tdv5OdAzNPyOuoi+yOnpNC0OpfRz/RY=
+github.com/arc-language/core-codegen v0.0.0-20251226233434-a2a624ecabc0/go.mod h1:+PZFdeewFhSYo+OuOcwbQ06W61cMmVohZsctmIdpfVY=
 github.com/arc-language/core-compiler v0.0.0-20251224001031-dece9b0c37c8 h1:gSw7N4JW7m6VHTITuekQYg/su1w3HttV+egswzk1+XE=
 github.com/arc-language/core-compiler v0.0.0-20251224001031-dece9b0c37c8/go.mod h1:35A/XQo/THb+ULaJ5Gj/rOPNQEdeIWlCVTFEC+c1omM=
 github.com/arc-language/core-compiler v0.0.0-20251224012005-a58eabc944eb h1:oDvYz5ajx3OUuclCjBuLG0OSEVpoMY0o6HDwS1xdD6g=
@@ -86,6 +90,8 @@ github.com/arc-language/core-compiler v0.0.0-20251226224717-aa9dec59fa7c h1:NZ8o
 github.com/arc-language/core-compiler v0.0.0-20251226224717-aa9dec59fa7c/go.mod h1:bFWFO5XhCepYU3FMQLvQJu97HGGCwM5xD9LVpVbgRrg=
 github.com/arc-language/core-compiler v0.0.0-20251226224902-602dfb1d6b7d h1:MzlOzv31egi0FYnew/cl5miezcKm2L3aYe5aGkYsnhg=
 github.com/arc-language/core-compiler v0.0.0-20251226224902-602dfb1d6b7d/go.mod h1:bFWFO5XhCepYU3FMQLvQJu97HGGCwM5xD9LVpVbgRrg=
+github.com/arc-language/core-compiler v0.0.0-20251226233516-979a72d9d3ae h1:fK+HCGbHAPNAPc17oYDSSwURRA9Yuo3wWAAsQGGciQ4=
+github.com/arc-language/core-compiler v0.0.0-20251226233516-979a72d9d3ae/go.mod h1:bFWFO5XhCepYU3FMQLvQJu97HGGCwM5xD9LVpVbgRrg=
 github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772 h1:9Gua+mHnZmTGyJKZGluTeAfBxdgn92HBLSNwpSxhXUw=
 github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772/go.mod h1:BLt/5INiwrJOd15QBGG6nUVA8CFJLyeU1+de32mJ9S4=
 github.com/arc-language/core-parser v0.0.0-20251224012048-3e7ee7227872 h1:AQhteHock3yn9Rj1tkwl0n3a5i/n6Xjq94Y+jUr1wRE=
@@ -96,5 +102,7 @@ github.com/arc-language/core-parser v0.0.0-20251226200755-90618852b2ba h1:4YWGdu
 github.com/arc-language/core-parser v0.0.0-20251226200755-90618852b2ba/go.mod h1:BLt/5INiwrJOd15QBGG6nUVA8CFJLyeU1+de32mJ9S4=
 github.com/arc-language/core-parser v0.0.0-20251226204318-f41a8bb4a2fd h1:i6SatFZusEYfX8XxTlVPZ7voPbeTRO77MHm9TsNm1ck=
 github.com/arc-language/core-parser v0.0.0-20251226204318-f41a8bb4a2fd/go.mod h1:BLt/5INiwrJOd15QBGG6nUVA8CFJLyeU1+de32mJ9S4=
+github.com/arc-language/core-parser v0.0.0-20251226233645-99880d9f3e9e h1:N81Cw4heg8aYD0reTkC7UJTfe4whIdW22YjqlwoaYcM=
+github.com/arc-language/core-parser v0.0.0-20251226233645-99880d9f3e9e/go.mod h1:BLt/5INiwrJOd15QBGG6nUVA8CFJLyeU1+de32mJ9S4=
 golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 h1:vr/HnozRka3pE4EsMEg1lgkXJkTFJCVUX+S/ZT6wYzM=
 golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842/go.mod h1:XtvwrStGgqGPLc4cjQfWqZHG1YFdYs6swckp8vpsjnc=
