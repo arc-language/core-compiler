@@ -47,18 +47,32 @@ func (v *IRVisitor) VisitStatement(ctx *parser.StatementContext) interface{} {
 }
 
 func (v *IRVisitor) VisitBlock(ctx *parser.BlockContext) interface{} {
+	stmts := ctx.AllStatement()
+	fmt.Printf("DEBUG VisitBlock: %d statements\n", len(stmts))
+	
+	for i, stmt := range stmts {
+		stmtText := stmt.GetText()
+		if len(stmtText) > 100 {
+			stmtText = stmtText[:100] + "..."
+		}
+		fmt.Printf("DEBUG VisitBlock: Statement %d text: %s\n", i, stmtText)
+	}
+	
 	v.ctx.PushScope()
 	
-	for _, stmt := range ctx.AllStatement() {
+	for i, stmt := range stmts {
+		fmt.Printf("DEBUG VisitBlock: Processing statement %d/%d\n", i+1, len(stmts))
 		v.Visit(stmt)
 		
 		// Stop if we hit a terminator
 		if v.ctx.currentBlock != nil && v.ctx.currentBlock.Terminator() != nil {
+			fmt.Printf("DEBUG VisitBlock: Hit terminator, stopping at statement %d\n", i)
 			break
 		}
 	}
 	
 	v.ctx.PopScope()
+	fmt.Printf("DEBUG VisitBlock: completed\n")
 	return nil
 }
 
@@ -224,7 +238,14 @@ func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 
 func (v *IRVisitor) VisitExpressionStmt(ctx *parser.ExpressionStmtContext) interface{} {
 	fmt.Printf("DEBUG VisitExpressionStmt: expression text = %s\n", ctx.Expression().GetText())
-	v.Visit(ctx.Expression())
+	
+	// Check if this looks like an assignment that wasn't parsed as such
+	exprText := ctx.Expression().GetText()
+	if strings.Contains(exprText, "=") && !strings.Contains(exprText, "==") && !strings.Contains(exprText, "!=") {
+		fmt.Printf("WARNING: Expression contains '=' - might be a failed assignment parse: %s\n", exprText)
+	}
+	
+	result := v.Visit(ctx.Expression())
 	fmt.Printf("DEBUG VisitExpressionStmt: completed\n")
 	return nil
 }
