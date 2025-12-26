@@ -80,21 +80,9 @@ func (v *IRVisitor) VisitExternFunctionDecl(ctx *parser.ExternFunctionDeclContex
 // FUNCTION DECLARATIONS
 // ============================================================================
 
+// visitor_declarations.go - Complete corrected VisitFunctionDecl function
+
 func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface{} {
-	name := ctx.IDENTIFIER().GetText()
-	
-	var retType types.Type = types.Void
-	if ctx.Type_() != nil {
-		retType = v.resolveType(ctx.Type_())
-	}
-	
-	paramTypes := make([]types.Type, 0)
-	paramNames := make([]string, 0)
-	variadic := false
-	
-	if ctx.ParameterList() != nil {
-		paramCtx := ctx.ParameterList()
-		if pafunc (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
 	fmt.Printf("DEBUG VisitFunctionDecl: Function name: %s\n", name)
 	
