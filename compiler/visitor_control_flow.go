@@ -6,12 +6,15 @@ import (
 )
 
 func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
-	mergeBlock := v.ctx.Builder.CreateBlock("if.end")
+	// Generate unique suffix for this if statement
+	uniqueID := v.ctx.Builder.generateName()
+	
+	mergeBlock := v.ctx.Builder.CreateBlock("if.end." + uniqueID)
 	
 	// First if condition
 	cond := v.Visit(ctx.Expression(0)).(ir.Value)
-	thenBlock := v.ctx.Builder.CreateBlock("if.then")
-	nextCheckBlock := v.ctx.Builder.CreateBlock("if.next")
+	thenBlock := v.ctx.Builder.CreateBlock("if.then." + uniqueID)
+	nextCheckBlock := v.ctx.Builder.CreateBlock("if.next." + uniqueID)
 	
 	v.ctx.Builder.CreateCondBr(cond, thenBlock, nextCheckBlock)
 	
@@ -28,8 +31,8 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	
 	for i := 1; i < count; i++ {
 		cond := v.Visit(ctx.Expression(i)).(ir.Value)
-		thenBlock := v.ctx.Builder.CreateBlock("elseif.then")
-		newNextBlock := v.ctx.Builder.CreateBlock("elseif.next")
+		thenBlock := v.ctx.Builder.CreateBlock("elseif.then." + uniqueID)
+		newNextBlock := v.ctx.Builder.CreateBlock("elseif.next." + uniqueID)
 		
 		v.ctx.Builder.CreateCondBr(cond, thenBlock, newNextBlock)
 		
@@ -51,12 +54,10 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 		v.ctx.Builder.CreateBr(mergeBlock)
 	}
 	
-	// ONLY set insert point to merge block if it has predecessors
-	// (i.e., if any branch actually jumps to it)
+	// Only set insert point to merge block if it has predecessors
 	if len(mergeBlock.Predecessors) > 0 {
 		v.ctx.SetInsertBlock(mergeBlock)
 	}
-	// Otherwise, leave the insert point wherever it is (likely unreachable)
 	
 	return nil
 }
