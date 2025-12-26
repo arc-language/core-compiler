@@ -165,7 +165,7 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 						if ptrType, isPtr := alloca.AllocatedType.(*types.PointerType); isPtr {
 							// It's a pointer to something - load it
 							fmt.Printf("DEBUG: Allocated type is pointer to: %v\n", ptrType.ElementType)
-							if structType, isStruct := ptrType.ElementType.(*types.StructType); isStruct {
+							if _, isStruct := ptrType.ElementType.(*types.StructType); isStruct {
 								// Load the pointer to the struct
 								basePtr = v.ctx.Builder.CreateLoad(ptrType.ElementType, alloca, "")
 								fmt.Printf("DEBUG: Loaded pointer to struct from alloca, result type: %v\n", basePtr.Type())
@@ -174,7 +174,7 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 								basePtr = v.ctx.Builder.CreateLoad(ptrType.ElementType, alloca, "")
 								fmt.Printf("DEBUG: Loaded pointer from alloca\n")
 							}
-						} else if structType, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
+						} else if _, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
 							// Direct struct allocation - use the alloca address
 							basePtr = alloca
 							fmt.Printf("DEBUG: Using alloca as base pointer for direct struct\n")
