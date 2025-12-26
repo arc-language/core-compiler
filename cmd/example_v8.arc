@@ -1,4 +1,4 @@
-// example_v4.arc
+// example_v8.arc
 namespace main
 
 extern c {

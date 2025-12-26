@@ -98,6 +98,8 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitEqualityExpression(ctx)
 	case *parser.RelationalExpressionContext:
 		return v.VisitRelationalExpression(ctx)
+	case *parser.RangeExpressionContext:
+		return v.VisitRangeExpression(ctx)
 	case *parser.AdditiveExpressionContext:
 		return v.VisitAdditiveExpression(ctx)
 	case *parser.MultiplicativeExpressionContext:
@@ -510,6 +512,13 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	if v.ctx.currentBlock.Terminator() == nil { v.ctx.Builder.CreateBr(mergeBlock) }
 	v.ctx.SetInsertBlock(mergeBlock)
 	return nil
+}
+
+// Add this new method after VisitRelationalExpression
+func (v *IRVisitor) VisitRangeExpression(ctx *parser.RangeExpressionContext) interface{} {
+    // For now, just visit the additive expression
+    // (Range expressions like 1..10 can be implemented later)
+    return v.Visit(ctx.AdditiveExpression(0))
 }
 
 func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
