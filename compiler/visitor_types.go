@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"fmt"
 	"github.com/arc-language/core-builder/types"
 	"github.com/arc-language/core-parser"
 )
