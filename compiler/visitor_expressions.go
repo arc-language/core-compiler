@@ -143,9 +143,6 @@ func (v *IRVisitor) VisitPostfixExpression(ctx *parser.PostfixExpressionContext)
 }
 
 func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, baseIdentifier string) ir.Value {
-	fmt.Printf("DEBUG visitPostfixOp: DOT=%v, IDENTIFIER=%v, LPAREN=%v\n", 
-		ctx.DOT() != nil, ctx.IDENTIFIER() != nil, ctx.LPAREN() != nil)
-	
 	// Function call (check this FIRST)
 	if ctx.LPAREN() != nil {
 		var args []ir.Value
@@ -159,10 +156,8 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 			if v.pendingMethodSelf != nil {
 				args = append([]ir.Value{v.pendingMethodSelf}, args...)
 				v.pendingMethodSelf = nil
-				fmt.Printf("DEBUG: Method call with self prepended, %d total args\n", len(args))
 			}
 			
-			fmt.Printf("DEBUG: Calling function: %s with %d args\n", fn.Name(), len(args))
 			return v.ctx.Builder.CreateCall(fn, args, "")
 		}
 		
@@ -173,18 +168,14 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 	// Member access (DOT)
 	if ctx.DOT() != nil && ctx.IDENTIFIER() != nil {
 		memberName := ctx.IDENTIFIER().GetText()
-		fmt.Printf("DEBUG: Accessing member: %s\n", memberName)
 		
 		// Reset pending method state from any previous operation
 		v.pendingMethodSelf = nil
 		
 		// Check if this is a namespace.function access
 		if baseIdentifier != "" {
-			fmt.Printf("DEBUG: Checking if '%s' is a namespace\n", baseIdentifier)
 			if fns, ok := v.namespaces[baseIdentifier]; ok {
-				fmt.Printf("DEBUG: Found namespace '%s'\n", baseIdentifier)
 				if fn, ok := fns[memberName]; ok {
-					fmt.Printf("DEBUG: Found function '%s' in namespace '%s'\n", memberName, baseIdentifier)
 					return fn
 				}
 				v.ctx.Diagnostics.Error(fmt.Sprintf("function '%s' not found in namespace '%s'", memberName, baseIdentifier))
@@ -193,23 +184,17 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 		}
 		
 		// Not a namespace access - check for class method
-		fmt.Printf("DEBUG: Not a namespace access, checking for method\n")
 		if ptrType, ok := base.Type().(*types.PointerType); ok {
 			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
 				if v.ctx.IsClassType(structType.Name) {
 					// Look for a method with the naming convention: ClassName_methodName
 					methodName := structType.Name + "_" + memberName
-					fmt.Printf("DEBUG: Looking for class method: %s\n", methodName)
 					
 					if fn := v.ctx.Module.GetFunction(methodName); fn != nil {
-						fmt.Printf("DEBUG: Found class method: %s\n", methodName)
 						// Store the self pointer to be prepended when the function is called
 						v.pendingMethodSelf = base
 						return fn
 					}
-					
-					// Not a method, fall through to field access
-					fmt.Printf("DEBUG: Not a method, trying field access\n")
 				}
 			}
 		}
@@ -222,24 +207,16 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 }
 
 func (v *IRVisitor) handleFieldAccess(base ir.Value, fieldName string) ir.Value {
-	fmt.Printf("DEBUG: handleFieldAccess for field: %s\n", fieldName)
-	
 	// Case 1: Pointer to struct/class
 	if ptrType, ok := base.Type().(*types.PointerType); ok {
-		fmt.Printf("DEBUG: Base is pointer type\n")
 		if structType, ok := ptrType.ElementType.(*types.StructType); ok {
-			fmt.Printf("DEBUG: Element is struct type: %s\n", structType.Name)
 			isClass := v.ctx.IsClassType(structType.Name)
-			fmt.Printf("DEBUG: Is class type: %v\n", isClass)
 			var fieldIdx int = -1
 			
 			if isClass {
-				fmt.Printf("DEBUG: Looking in ClassFieldIndices for '%s'\n", structType.Name)
 				if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
-					fmt.Printf("DEBUG: Found field indices map: %v\n", fieldIndices)
 					if idx, ok := fieldIndices[fieldName]; ok {
 						fieldIdx = idx
-						fmt.Printf("DEBUG: Found field index: %d\n", fieldIdx)
 					}
 				}
 			} else {
@@ -276,21 +253,8 @@ func (v *IRVisitor) handleFieldAccess(base ir.Value, fieldName string) ir.Value 
 }
 
 func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext) interface{} {
-	fmt.Printf("DEBUG VisitPrimaryExpression:\n")
-	fmt.Printf("  Literal: %v\n", ctx.Literal() != nil)
-	fmt.Printf("  IDENTIFIER: %v", ctx.IDENTIFIER() != nil)
-	if ctx.IDENTIFIER() != nil {
-		fmt.Printf(" (%s)", ctx.IDENTIFIER().GetText())
-	}
-	fmt.Printf("\n")
-	fmt.Printf("  Expression: %v\n", ctx.Expression() != nil)
-	fmt.Printf("  CastExpression: %v\n", ctx.CastExpression() != nil)
-	fmt.Printf("  AllocaExpression: %v\n", ctx.AllocaExpression() != nil)
-	fmt.Printf("  StructLiteral: %v\n", ctx.StructLiteral() != nil)
-	
 	// Check struct literal FIRST
 	if ctx.StructLiteral() != nil {
-		fmt.Printf("DEBUG: Visiting StructLiteral\n")
 		return v.Visit(ctx.StructLiteral())
 	}
 	
@@ -309,11 +273,14 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 	if ctx.AllocaExpression() != nil {
 		return v.Visit(ctx.AllocaExpression())
 	}
+
+	if ctx.SyscallExpression() != nil {
+		return v.Visit(ctx.SyscallExpression())
+	}
 	
 	// Check identifier
 	if ctx.IDENTIFIER() != nil {
 		name := ctx.IDENTIFIER().GetText()
-		fmt.Printf("DEBUG: Looking up identifier: %s\n", name)
 		
 		// First check if this is a type name
 		if _, isType := v.ctx.GetType(name); isType {
@@ -324,7 +291,6 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		// Check if this is a namespace - namespaces don't have values, but we need to return something
 		// so the postfix operator can check the identifier name
 		if _, isNamespace := v.namespaces[name]; isNamespace {
-			fmt.Printf("DEBUG: Identifier '%s' is a namespace\n", name)
 			// Return a dummy value - the postfix operator will use the baseIdentifier parameter
 			// to actually look up the function
 			return v.ctx.Builder.ConstInt(types.I64, 0)
@@ -339,12 +305,9 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 
-		fmt.Printf("DEBUG: Found symbol: %s, IsConst: %v, Type: %v\n", sym.Name, sym.IsConst, sym.Value.Type())
-
 		if ptr, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
 			ptrType := ptr.Type().(*types.PointerType)
 			loaded := v.ctx.Builder.CreateLoad(ptrType.ElementType, ptr, "")
-			fmt.Printf("DEBUG: Loaded from alloca, result type: %v\n", loaded.Type())
 			return loaded
 		}
 
@@ -542,26 +505,50 @@ func (v *IRVisitor) VisitAllocaExpression(ctx *parser.AllocaExpressionContext) i
 	return v.ctx.Builder.CreateAlloca(allocType, "")
 }
 
+func (v *IRVisitor) VisitSyscallExpression(ctx *parser.SyscallExpressionContext) interface{} {
+	// 1. Collect all expressions
+	exprs := ctx.AllExpression()
+	if len(exprs) == 0 {
+		v.ctx.Diagnostics.Error("syscall requires at least a syscall number")
+		return v.ctx.Builder.ConstInt(types.I64, -1)
+	}
+
+	// 2. Generate values for all arguments
+	args := make([]ir.Value, len(exprs))
+	for i, expr := range exprs {
+		val := v.Visit(expr).(ir.Value)
+		
+		// Auto-cast integers to I64 for the builder
+		// This simplifies the backend work, as registers are 64-bit anyway
+		if types.IsInteger(val.Type()) {
+			if val.Type().BitSize() < 64 {
+				val = v.ctx.Builder.CreateSExt(val, types.I64, "")
+			}
+		} else if types.IsPointer(val.Type()) {
+			// Pointers are fine, backend loads them as 64-bit addresses
+		}
+		
+		args[i] = val
+	}
+
+	// 3. Create the syscall instruction
+	return v.ctx.Builder.CreateSyscall(args)
+}
+
 func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface{} {
 	args := make([]ir.Value, 0)
-	fmt.Printf("DEBUG VisitArgumentList: %d expressions\n", len(ctx.AllExpression()))
 	
-	for i, expr := range ctx.AllExpression() {
-		fmt.Printf("DEBUG: Processing argument %d\n", i)
+	for _, expr := range ctx.AllExpression() {
 		arg := v.Visit(expr)
 		if arg == nil {
-			fmt.Printf("DEBUG: Argument %d is nil, skipping\n", i)
 			continue
 		}
 		argVal, ok := arg.(ir.Value)
 		if !ok {
-			fmt.Printf("DEBUG: Argument %d is not ir.Value (type: %T), skipping\n", i, arg)
 			continue
 		}
-		fmt.Printf("DEBUG: Argument %d type: %v\n", i, argVal.Type())
 		args = append(args, argVal)
 	}
 	
-	fmt.Printf("DEBUG VisitArgumentList: returning %d args\n", len(args))
 	return args
 }

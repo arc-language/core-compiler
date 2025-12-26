@@ -84,6 +84,8 @@ github.com/arc-language/core-compiler v0.0.0-20251226220059-586868a6e270 h1:WBgR
 github.com/arc-language/core-compiler v0.0.0-20251226220059-586868a6e270/go.mod h1:bFWFO5XhCepYU3FMQLvQJu97HGGCwM5xD9LVpVbgRrg=
 github.com/arc-language/core-compiler v0.0.0-20251226224717-aa9dec59fa7c h1:NZ8oi02zkYPVMhEJslRcRQiHMINE5K+du8oMgdCwFSI=
 github.com/arc-language/core-compiler v0.0.0-20251226224717-aa9dec59fa7c/go.mod h1:bFWFO5XhCepYU3FMQLvQJu97HGGCwM5xD9LVpVbgRrg=
+github.com/arc-language/core-compiler v0.0.0-20251226224902-602dfb1d6b7d h1:MzlOzv31egi0FYnew/cl5miezcKm2L3aYe5aGkYsnhg=
+github.com/arc-language/core-compiler v0.0.0-20251226224902-602dfb1d6b7d/go.mod h1:bFWFO5XhCepYU3FMQLvQJu97HGGCwM5xD9LVpVbgRrg=
 github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772 h1:9Gua+mHnZmTGyJKZGluTeAfBxdgn92HBLSNwpSxhXUw=
 github.com/arc-language/core-parser v0.0.0-20251223210335-c47242c52772/go.mod h1:BLt/5INiwrJOd15QBGG6nUVA8CFJLyeU1+de32mJ9S4=
 github.com/arc-language/core-parser v0.0.0-20251224012048-3e7ee7227872 h1:AQhteHock3yn9Rj1tkwl0n3a5i/n6Xjq94Y+jUr1wRE=
