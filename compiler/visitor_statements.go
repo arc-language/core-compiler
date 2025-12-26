@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
@@ -10,6 +11,20 @@ import (
 )
 
 func (v *IRVisitor) VisitStatement(ctx *parser.StatementContext) interface{} {
+	fmt.Printf("DEBUG VisitStatement: Statement text: %s\n", ctx.GetText())
+	fmt.Printf("DEBUG VisitStatement: Type of statement:\n")
+	fmt.Printf("  VariableDecl: %v\n", ctx.VariableDecl() != nil)
+	fmt.Printf("  ConstDecl: %v\n", ctx.ConstDecl() != nil)
+	fmt.Printf("  AssignmentStmt: %v\n", ctx.AssignmentStmt() != nil)
+	fmt.Printf("  ReturnStmt: %v\n", ctx.ReturnStmt() != nil)
+	fmt.Printf("  IfStmt: %v\n", ctx.IfStmt() != nil)
+	fmt.Printf("  ForStmt: %v\n", ctx.ForStmt() != nil)
+	fmt.Printf("  BreakStmt: %v\n", ctx.BreakStmt() != nil)
+	fmt.Printf("  ContinueStmt: %v\n", ctx.ContinueStmt() != nil)
+	fmt.Printf("  DeferStmt: %v\n", ctx.DeferStmt() != nil)
+	fmt.Printf("  ExpressionStmt: %v\n", ctx.ExpressionStmt() != nil)
+	fmt.Printf("  Block: %v\n", ctx.Block() != nil)
+	
 	if ctx.VariableDecl() != nil {
 		return v.Visit(ctx.VariableDecl())
 	}
@@ -86,10 +101,10 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 	}
 	fmt.Printf("  LHS has STAR: %v\n", lhsCtx.STAR() != nil)
 	fmt.Printf("  LHS has DOT: %v\n", lhsCtx.DOT() != nil)
-	fmt.Printf("  LHS has Expression: %v\n", lhsCtx.Expression() != nil)
+	fmt.Printf("  LHS has PostfixExpression: %v\n", lhsCtx.PostfixExpression() != nil)
 	fmt.Printf("  RHS expression: %s\n", ctx.Expression().GetText())
 	
-	// Variable Assignment
+	// Simple Variable Assignment: IDENTIFIER = value
 	if lhsCtx.IDENTIFIER() != nil && lhsCtx.DOT() == nil && lhsCtx.STAR() == nil {
 		name := lhsCtx.IDENTIFIER().GetText()
 		fmt.Printf("DEBUG: Simple variable assignment to: %s\n", name)
@@ -115,40 +130,55 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 		return nil
 	}
 	
-	// Pointer Assignment (*ptr = val)
+	// Pointer Assignment: *ptr = value
 	if lhsCtx.STAR() != nil {
 		fmt.Printf("DEBUG: Pointer dereference assignment\n")
-		ptr := v.Visit(lhsCtx.Expression()).(ir.Value)
+		ptr := v.Visit(lhsCtx.PostfixExpression()).(ir.Value)
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
 		v.ctx.Builder.CreateStore(rhs, ptr)
 		return nil
 	}
 	
-	// Field Assignment (obj.field = val)
-	if lhsCtx.DOT() != nil {
+	// Field Assignment: obj.field = value
+	if lhsCtx.DOT() != nil && lhsCtx.PostfixExpression() != nil {
 		fmt.Printf("DEBUG: Field assignment\n")
-		exprCtx := lhsCtx.Expression()
+		postfixCtx := lhsCtx.PostfixExpression()
 		var basePtr ir.Value
 		
-		// Attempt to resolve the variable to get its address (L-Value)
-		exprText := exprCtx.GetText()
-		fmt.Printf("DEBUG: Base expression text: %s\n", exprText)
+		// Try to get the base object text for lookup
+		baseText := postfixCtx.GetText()
+		fmt.Printf("DEBUG: Base postfix expression text: %s\n", baseText)
 		
-		if sym, ok := v.ctx.currentScope.Lookup(exprText); ok {
-			fmt.Printf("DEBUG: Found symbol for base: %s\n", exprText)
-			if alloca, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
-				// Only use the alloca address if it is a Struct
-				if _, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
-					basePtr = alloca
-					fmt.Printf("DEBUG: Using alloca as base pointer\n")
+		// Check if the postfix expression is just a simple identifier
+		if postfixCtx.PrimaryExpression() != nil {
+			primaryCtx := postfixCtx.PrimaryExpression()
+			if primaryCtx.IDENTIFIER() != nil {
+				varName := primaryCtx.IDENTIFIER().GetText()
+				fmt.Printf("DEBUG: Base is simple identifier: %s\n", varName)
+				
+				if sym, ok := v.ctx.currentScope.Lookup(varName); ok {
+					fmt.Printf("DEBUG: Found symbol for base: %s\n", varName)
+					if alloca, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
+						// Only use the alloca address if it is a Struct or Class
+						if _, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
+							basePtr = alloca
+							fmt.Printf("DEBUG: Using alloca as base pointer\n")
+						} else if ptrType, isPtr := alloca.AllocatedType.(*types.PointerType); isPtr {
+							// If it's a pointer to struct, load it first
+							if _, isStruct := ptrType.ElementType.(*types.StructType); isStruct {
+								basePtr = v.ctx.Builder.CreateLoad(ptrType.ElementType, alloca, "")
+								fmt.Printf("DEBUG: Loaded pointer to struct from alloca\n")
+							}
+						}
+					}
 				}
 			}
 		}
 		
 		if basePtr == nil {
-			fmt.Printf("DEBUG: Fallback - visiting expression for base\n")
-			// Fallback: This correctly handles pointers-to-structs
-			basePtr = v.Visit(exprCtx).(ir.Value)
+			fmt.Printf("DEBUG: Fallback - visiting postfix expression for base\n")
+			// Fallback: visit the postfix expression to get the value
+			basePtr = v.Visit(postfixCtx).(ir.Value)
 			fmt.Printf("DEBUG: Base pointer type: %v\n", basePtr.Type())
 		}
 		
@@ -245,7 +275,7 @@ func (v *IRVisitor) VisitExpressionStmt(ctx *parser.ExpressionStmtContext) inter
 		fmt.Printf("WARNING: Expression contains '=' - might be a failed assignment parse: %s\n", exprText)
 	}
 	
-	result := v.Visit(ctx.Expression())
+	v.Visit(ctx.Expression())
 	fmt.Printf("DEBUG VisitExpressionStmt: completed\n")
 	return nil
 }
@@ -259,7 +289,10 @@ func (v *IRVisitor) VisitDeferStmt(ctx *parser.DeferStmtContext) interface{} {
 }
 
 func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface{} {
-	if ctx.IDENTIFIER() != nil {
+	// This visitor is used for extracting values from LHS for other purposes
+	// The actual assignment logic is in VisitAssignmentStmt
+	
+	if ctx.IDENTIFIER() != nil && ctx.DOT() == nil && ctx.STAR() == nil {
 		name := ctx.IDENTIFIER().GetText()
 		sym, ok := v.ctx.currentScope.Lookup(name)
 		if ok {
@@ -267,7 +300,10 @@ func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface
 		}
 	}
 	if ctx.STAR() != nil {
-		return v.Visit(ctx.Expression())
+		return v.Visit(ctx.PostfixExpression())
+	}
+	if ctx.PostfixExpression() != nil {
+		return v.Visit(ctx.PostfixExpression())
 	}
 	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
