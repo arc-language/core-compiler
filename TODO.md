@@ -17,7 +17,13 @@
 
 
 3: add the new Intrinsics to the parser, builder, codegen and compiler
- - use the Intrinsics to help with core modules, io and fs
+
+ - continue to sync the new updates of the Intrinsics method calls
+ - make sure all the compiler tests are working
+
+
+ 
+ - when all tests working, use the Intrinsics to help with core modules, io and fs
  - if you need more Intrinsics to help then just add more
 
 
