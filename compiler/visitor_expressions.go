@@ -171,9 +171,7 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 		v.pendingMethodSelf = nil
 		
 		// 1. Check if this is a namespace.function access
-		// Usage: utils.Func() -> baseIdentifier="utils", memberName="Func"
 		if baseIdentifier != "" {
-			// Lookup namespace in global context registry
 			if ns, ok := v.ctx.NamespaceRegistry[baseIdentifier]; ok {
 				if fn, ok := ns.LookupFunction(memberName); ok {
 					return fn
@@ -187,23 +185,11 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 		if ptrType, ok := base.Type().(*types.PointerType); ok {
 			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
 				if v.ctx.IsClassType(structType.Name) {
-					// Look for a method with the naming convention: ClassName_methodName
-					// Also check if the class is part of a namespace
-					// For now, simpler implementation: Class methods are just functions
-					
-					// Try Class_Member
 					methodName := structType.Name + "_" + memberName
-					
-					// If we are in a namespace, checking module functions might need namespace prefix?
-					// But usually, methods are looked up via the type name which is unique.
 					if fn := v.ctx.Module.GetFunction(methodName); fn != nil {
-						// Store the self pointer to be prepended when the function is called
 						v.pendingMethodSelf = base
 						return fn
 					}
-					
-					// If the class was defined in a namespace, the method might be "Namespace_Class_Member"
-					// This gets complicated without Type metadata storing the namespace.
 				}
 			}
 		}
@@ -286,6 +272,10 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		return v.Visit(ctx.SyscallExpression())
 	}
 	
+	if ctx.IntrinsicExpression() != nil {
+		return v.Visit(ctx.IntrinsicExpression())
+	}
+	
 	// Check identifier
 	if ctx.IDENTIFIER() != nil {
 		name := ctx.IDENTIFIER().GetText()
@@ -298,8 +288,6 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		
 		// Check if this is a namespace
 		if _, isNamespace := v.ctx.NamespaceRegistry[name]; isNamespace {
-			// Return a dummy value - the postfix operator will use the baseIdentifier parameter
-			// to actually look up the function in the namespace
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		
@@ -334,6 +322,170 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 
+func (v *IRVisitor) VisitIntrinsicExpression(ctx *parser.IntrinsicExpressionContext) interface{} {
+	// Handle sizeof and alignof (compile-time constants)
+	if ctx.SIZEOF() != nil {
+		typ := v.resolveType(ctx.Type_())
+		size := v.calculateSizeOf(typ)
+		return v.ctx.Builder.ConstInt(types.U64, int64(size))
+	}
+	
+	if ctx.ALIGNOF() != nil {
+		typ := v.resolveType(ctx.Type_())
+		align := v.calculateAlignOf(typ)
+		return v.ctx.Builder.ConstInt(types.U64, int64(align))
+	}
+	
+	// Handle bit_cast<T>(value)
+	if ctx.BIT_CAST() != nil {
+		if len(ctx.AllExpression()) != 1 {
+			v.ctx.Diagnostics.Error("bit_cast requires exactly one argument")
+			return v.ctx.Builder.ConstInt(types.I64, 0)
+		}
+		
+		value := v.Visit(ctx.Expression(0)).(ir.Value)
+		targetType := v.resolveType(ctx.Type_())
+		return v.ctx.Builder.CreateBitCast(value, targetType, "")
+	}
+	
+	// Get arguments for function-style intrinsics
+	var args []ir.Value
+	for _, expr := range ctx.AllExpression() {
+		args = append(args, v.Visit(expr).(ir.Value))
+	}
+	
+	// Handle memory intrinsics (memset, memcpy, memmove)
+	if ctx.MEMSET() != nil {
+		return v.ctx.Builder.CreateCallByName("memset", types.NewPointer(types.Void), args, "")
+	}
+	
+	if ctx.MEMCPY() != nil {
+		return v.ctx.Builder.CreateCallByName("memcpy", types.NewPointer(types.Void), args, "")
+	}
+	
+	if ctx.MEMMOVE() != nil {
+		return v.ctx.Builder.CreateCallByName("memmove", types.NewPointer(types.Void), args, "")
+	}
+	
+	// Handle string intrinsics
+	if ctx.STRLEN() != nil {
+		return v.ctx.Builder.CreateCallByName("strlen", types.U64, args, "")
+	}
+	
+	if ctx.MEMCHR() != nil {
+		return v.ctx.Builder.CreateCallByName("memchr", types.NewPointer(types.Void), args, "")
+	}
+	
+	if ctx.MEMCMP() != nil {
+		return v.ctx.Builder.CreateCallByName("memcmp", types.I32, args, "")
+	}
+	
+	// Handle va_arg intrinsics (variadic argument handling)
+	if ctx.VA_START() != nil {
+		return v.ctx.Builder.CreateCallByName("va_start", types.Void, args, "")
+	}
+	
+	if ctx.VA_ARG() != nil {
+		// va_arg needs type parameter
+		targetType := v.resolveType(ctx.Type_())
+		return v.ctx.Builder.CreateCallByName("va_arg", targetType, args, "")
+	}
+	
+	if ctx.VA_END() != nil {
+		return v.ctx.Builder.CreateCallByName("va_end", types.Void, args, "")
+	}
+	
+	// Handle raise (abort with message)
+	if ctx.RAISE() != nil {
+		// Call the raise function, then emit unreachable
+		v.ctx.Builder.CreateCallByName("raise", types.Void, args, "")
+		v.ctx.Builder.CreateUnreachable()
+		return v.ctx.Builder.ConstInt(types.I64, 0)
+	}
+	
+	// Fallback for IDENTIFIER-based intrinsics (if grammar supports it)
+	if ctx.IDENTIFIER() != nil {
+		intrinsicName := ctx.IDENTIFIER().GetText()
+		v.ctx.Diagnostics.Error(fmt.Sprintf("unknown intrinsic: %s", intrinsicName))
+	}
+	
+	return v.ctx.Builder.ConstInt(types.I64, 0)
+}
+
+// Helper functions for sizeof/alignof calculations
+func (v *IRVisitor) calculateSizeOf(typ types.Type) int {
+	switch t := typ.(type) {
+	case *types.IntType:
+		return t.BitWidth / 8
+	case *types.FloatType:
+		return t.BitWidth / 8
+	case *types.PointerType:
+		return 8 // 64-bit pointers
+	case *types.StructType:
+		// Calculate struct size with padding
+		size := 0
+		for _, field := range t.Fields {
+			fieldSize := v.calculateSizeOf(field)
+			fieldAlign := v.calculateAlignOf(field)
+			// Align field
+			if size%fieldAlign != 0 {
+				size += fieldAlign - (size % fieldAlign)
+			}
+			size += fieldSize
+		}
+		// Align struct to its own alignment
+		structAlign := v.calculateAlignOf(typ)
+		if size%structAlign != 0 {
+			size += structAlign - (size % structAlign)
+		}
+		return size
+	case *types.ArrayType:
+		return v.calculateSizeOf(t.ElementType) * int(t.Length)
+	default:
+		return 8
+	}
+}
+
+func (v *IRVisitor) calculateAlignOf(typ types.Type) int {
+	switch t := typ.(type) {
+	case *types.IntType:
+		bits := t.BitWidth
+		if bits <= 8 {
+			return 1
+		} else if bits <= 16 {
+			return 2
+		} else if bits <= 32 {
+			return 4
+		}
+		return 8
+	case *types.FloatType:
+		bits := t.BitWidth
+		if bits == 16 {
+			return 2
+		} else if bits == 32 {
+			return 4
+		} else if bits == 64 {
+			return 8
+		}
+		return 16
+	case *types.PointerType:
+		return 8
+	case *types.StructType:
+		maxAlign := 1
+		for _, field := range t.Fields {
+			align := v.calculateAlignOf(field)
+			if align > maxAlign {
+				maxAlign = align
+			}
+		}
+		return maxAlign
+	case *types.ArrayType:
+		return v.calculateAlignOf(t.ElementType)
+	default:
+		return 8
+	}
+}
+
 func (v *IRVisitor) VisitStructLiteral(ctx *parser.StructLiteralContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
 	typ, ok := v.ctx.GetType(name)
@@ -350,7 +502,6 @@ func (v *IRVisitor) VisitStructLiteral(ctx *parser.StructLiteralContext) interfa
 
 	// Check if this is a class (requires heap allocation)
 	if v.ctx.IsClassType(name) {
-		// Allocate on heap for class instances
 		ptrToClass := v.ctx.Builder.CreateAlloca(structType, name+".instance")
 		
 		// Zero-initialize all fields first
