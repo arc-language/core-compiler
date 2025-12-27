@@ -698,21 +698,24 @@ func (v *IRVisitor) VisitSyscallExpression(ctx *parser.SyscallExpressionContext)
 }
 
 func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface{} {
-	args := make([]ir.Value, 0)
-	
-	for _, expr := range ctx.AllExpression() {
-		arg := v.Visit(expr)
-		if arg == nil {
-			continue
-		}
-		argVal, ok := arg.(ir.Value)
-		if !ok {
-			continue
-		}
-		args = append(args, argVal)
-	}
-	
-	return args
+    args := make([]ir.Value, 0)
+    
+    for _, expr := range ctx.AllExpression() {
+        arg := v.Visit(expr)
+        if arg == nil {
+            v.ctx.Diagnostics.Error("failed to evaluate argument expression")
+            continue
+        }
+        argVal, ok := arg.(ir.Value)
+        if !ok {
+            v.ctx.Diagnostics.Error("argument expression did not produce a value")
+            continue
+        }
+        args = append(args, argVal)
+    }
+    
+    // Always return a slice, even if empty
+    return args
 }
 
 func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface{} {
