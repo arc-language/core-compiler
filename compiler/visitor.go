@@ -1,8 +1,6 @@
 package compiler
 
 import (
-	"fmt"
-
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/arc-language/core-builder/ir"
 	"github.com/arc-language/core-builder/types"
@@ -15,6 +13,7 @@ type IRVisitor struct {
 	compiler    *Compiler
 	ctx         *Context
 	currentFile string
+	logger      *Logger
 	
 	// Method call tracking
 	pendingMethodSelf ir.Value
@@ -22,11 +21,15 @@ type IRVisitor struct {
 
 // NewIRVisitor creates a new IR visitor
 func NewIRVisitor(c *Compiler, filename string) *IRVisitor {
+	logger := NewLogger("[Visitor]")
+	logger.Debug("Created visitor for file: %s", filename)
+	
 	return &IRVisitor{
 		BaseArcParserVisitor: &parser.BaseArcParserVisitor{},
 		compiler:             c,
 		ctx:                  c.context,
 		currentFile:          filename,
+		logger:               logger,
 	}
 }
 
@@ -120,6 +123,8 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitAllocaExpression(ctx)
 	case *parser.SyscallExpressionContext:
 		return v.VisitSyscallExpression(ctx)
+	case *parser.IntrinsicExpressionContext:
+		return v.VisitIntrinsicExpression(ctx)
 	case *parser.ArgumentListContext:
 		return v.VisitArgumentList(ctx)
 	case *parser.LeftHandSideContext:
@@ -134,22 +139,21 @@ func (v *IRVisitor) Visit(tree antlr.ParseTree) interface{} {
 // ============================================================================
 
 func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) interface{} {
-	fmt.Printf("DEBUG VisitCompilationUnit: Starting compilation of %s\n", v.currentFile)
+	v.logger.Info("Starting compilation of %s", v.currentFile)
 	
 	// Pass 0: Imports
-	// We must process imports first so external types/symbols are loaded
-	fmt.Printf("DEBUG VisitCompilationUnit: Pass 0 - Processing imports\n")
+	v.logger.Debug("Pass 0 - Processing imports")
 	for _, imp := range ctx.AllImportDecl() {
 		v.Visit(imp)
 	}
 
-	// Process Namespace declaration if present (affects visibility of subsequent decls)
+	// Process Namespace declaration if present
 	for _, ns := range ctx.AllNamespaceDecl() {
 		v.Visit(ns)
 	}
 
 	// Pass 1: Register all type declarations (structs and classes)
-	fmt.Printf("DEBUG VisitCompilationUnit: Pass 1 - Registering types\n")
+	v.logger.Debug("Pass 1 - Registering types")
 	for _, decl := range ctx.AllTopLevelDecl() {
 		if decl.StructDecl() != nil {
 			v.registerStructType(decl.StructDecl().(*parser.StructDeclContext))
@@ -159,7 +163,7 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 	}
 	
 	// Pass 2: Process everything else
-	fmt.Printf("DEBUG VisitCompilationUnit: Pass 2 - Processing declarations\n")
+	v.logger.Debug("Pass 2 - Processing declarations")
 	
 	for _, decl := range ctx.AllTopLevelDecl() {
 		if decl.FunctionDecl() != nil {
@@ -177,7 +181,7 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 		}
 	}
 	
-	fmt.Printf("DEBUG VisitCompilationUnit: Compilation complete for %s\n", v.currentFile)
+	v.logger.Info("Compilation complete for %s", v.currentFile)
 	return nil
 }
 
@@ -205,7 +209,7 @@ func (v *IRVisitor) VisitTopLevelDecl(ctx *parser.TopLevelDeclContext) interface
 
 func (v *IRVisitor) VisitNamespaceDecl(ctx *parser.NamespaceDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
-	fmt.Printf("DEBUG: Setting current namespace to '%s'\n", name)
+	v.logger.Info("Setting current namespace to '%s'", name)
 	v.ctx.SetNamespace(name)
 	return nil
 }
@@ -226,6 +230,7 @@ func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 		if typ, ok := v.ctx.GetType(name); ok {
 			return typ
 		}
+		v.logger.Warning("Unknown primitive type '%s', defaulting to i64", name)
 		return types.I64
 	}
 	
@@ -240,12 +245,12 @@ func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 	}
 	
 	if typeCtx.VectorType() != nil {
-		v.ctx.Diagnostics.Warning("vector types not yet implemented")
+		v.ctx.Logger.Warning("Vector types not yet implemented")
 		return types.I64
 	}
 	
 	if typeCtx.MapType() != nil {
-		v.ctx.Diagnostics.Warning("map types not yet implemented")
+		v.ctx.Logger.Warning("Map types not yet implemented")
 		return types.I64
 	}
 	
@@ -254,8 +259,7 @@ func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 		if typ, ok := v.ctx.GetType(name); ok {
 			return typ
 		}
-		// If explicit type lookup fails, try looking in the namespace registry
-		v.ctx.Diagnostics.Error(fmt.Sprintf("unknown type: %s", name))
+		v.ctx.Logger.Error("Unknown type: %s", name)
 		return types.I64
 	}
 	

@@ -109,7 +109,7 @@ func (v *IRVisitor) VisitUnaryExpression(ctx *parser.UnaryExpressionContext) int
 		ptr := v.Visit(ctx.UnaryExpression()).(ir.Value)
 		ptrType, ok := ptr.Type().(*types.PointerType)
 		if !ok {
-			v.ctx.Diagnostics.Error("cannot dereference non-pointer")
+			v.ctx.Logger.Error("Cannot dereference non-pointer")
 			return ptr
 		}
 		return v.ctx.Builder.CreateLoad(ptrType.ElementType, ptr, "")
@@ -153,7 +153,7 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 			}
 		}
 		
-		// Check if this is a method call (we have a pending self parameter)
+		// Check if this is a method call
 		if fn, ok := base.(*ir.Function); ok {
 			// Prepend self parameter if we have one pending
 			if v.pendingMethodSelf != nil {
@@ -161,10 +161,11 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 				v.pendingMethodSelf = nil
 			}
 			
+			v.logger.Debug("Calling function: %s", fn.Name())
 			return v.ctx.Builder.CreateCall(fn, args, "")
 		}
 		
-		v.ctx.Diagnostics.Error("cannot call non-function")
+		v.ctx.Logger.Error("Cannot call non-function")
 		return base
 	}
 	
@@ -172,27 +173,29 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 	if ctx.DOT() != nil && ctx.IDENTIFIER() != nil {
 		memberName := ctx.IDENTIFIER().GetText()
 		
-		// Reset pending method state from any previous operation
+		// Reset pending method state
 		v.pendingMethodSelf = nil
 		
-		// 1. Check if this is a namespace.function access
+		// 1. Check if this is namespace.function access
 		if baseIdentifier != "" {
 			if ns, ok := v.ctx.NamespaceRegistry[baseIdentifier]; ok {
 				if fn, ok := ns.LookupFunction(memberName); ok {
+					v.logger.Debug("Resolved %s.%s to function", baseIdentifier, memberName)
 					return fn
 				}
-				v.ctx.Diagnostics.Error(fmt.Sprintf("function '%s' not found in namespace '%s'", memberName, baseIdentifier))
+				v.ctx.Logger.Error("Function '%s' not found in namespace '%s'", memberName, baseIdentifier)
 				return v.ctx.Builder.ConstInt(types.I64, 0)
 			}
 		}
 		
-		// 2. Not a namespace access - check for class method
+		// 2. Check for class method
 		if ptrType, ok := base.Type().(*types.PointerType); ok {
 			if structType, ok := ptrType.ElementType.(*types.StructType); ok {
 				if v.ctx.IsClassType(structType.Name) {
 					methodName := structType.Name + "_" + memberName
 					if fn := v.ctx.Module.GetFunction(methodName); fn != nil {
 						v.pendingMethodSelf = base
+						v.logger.Debug("Resolved method %s on class %s", memberName, structType.Name)
 						return fn
 					}
 				}
@@ -224,10 +227,11 @@ func (v *IRVisitor) handleFieldAccess(base ir.Value, fieldName string) ir.Value 
 			}
 			
 			if fieldIdx < 0 {
-				v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' has no field '%s'", structType.Name, fieldName))
+				v.ctx.Logger.Error("Type '%s' has no field '%s'", structType.Name, fieldName)
 				return base
 			}
 			
+			v.logger.Debug("Accessing field '%s' at index %d on type '%s'", fieldName, fieldIdx, structType.Name)
 			gep := v.ctx.Builder.CreateStructGEP(structType, base, fieldIdx, "")
 			return v.ctx.Builder.CreateLoad(structType.Fields[fieldIdx], gep, "")
 		}
@@ -236,19 +240,19 @@ func (v *IRVisitor) handleFieldAccess(base ir.Value, fieldName string) ir.Value 
 	// Case 2: Struct value (direct value)
 	if structType, ok := base.Type().(*types.StructType); ok {
 		if v.ctx.IsClassType(structType.Name) {
-			v.ctx.Diagnostics.Error("class instances must be accessed via pointer")
+			v.ctx.Logger.Error("Class instances must be accessed via pointer")
 			return base
 		}
 		
 		fieldIdx := v.findFieldIndex(structType, fieldName)
 		if fieldIdx < 0 {
-			v.ctx.Diagnostics.Error(fmt.Sprintf("struct has no field '%s'", fieldName))
+			v.ctx.Logger.Error("Struct has no field '%s'", fieldName)
 			return base
 		}
 		return v.ctx.Builder.CreateExtractValue(base, []int{fieldIdx}, "")
 	}
 	
-	v.ctx.Diagnostics.Error(fmt.Sprintf("field access requires struct or class instance"))
+	v.ctx.Logger.Error("Field access requires struct or class instance")
 	return base
 }
 
@@ -287,7 +291,7 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 		
 		// First check if this is a type name
 		if _, isType := v.ctx.GetType(name); isType {
-			v.ctx.Diagnostics.Error(fmt.Sprintf("type '%s' used as value (did you mean '%s{}'?)", name, name))
+			v.ctx.Logger.Error("Type '%s' used as value (did you mean '%s{}'?)", name, name)
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		
@@ -311,7 +315,7 @@ func (v *IRVisitor) VisitPrimaryExpression(ctx *parser.PrimaryExpressionContext)
 				return fn
 			}
 			
-			v.ctx.Diagnostics.Error(fmt.Sprintf("undefined: %s", name))
+			v.ctx.Logger.Error("Undefined: %s", name)
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 
@@ -332,24 +336,27 @@ func (v *IRVisitor) VisitIntrinsicExpression(ctx *parser.IntrinsicExpressionCont
 	if ctx.SIZEOF() != nil {
 		typ := v.resolveType(ctx.Type_())
 		size := v.calculateSizeOf(typ)
+		v.logger.Debug("sizeof(%v) = %d", typ, size)
 		return v.ctx.Builder.ConstInt(types.U64, int64(size))
 	}
 	
 	if ctx.ALIGNOF() != nil {
 		typ := v.resolveType(ctx.Type_())
 		align := v.calculateAlignOf(typ)
+		v.logger.Debug("alignof(%v) = %d", typ, align)
 		return v.ctx.Builder.ConstInt(types.U64, int64(align))
 	}
 	
 	// Handle bit_cast<T>(value)
 	if ctx.BIT_CAST() != nil {
 		if len(ctx.AllExpression()) != 1 {
-			v.ctx.Diagnostics.Error("bit_cast requires exactly one argument")
+			v.ctx.Logger.Error("bit_cast requires exactly one argument")
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		
 		value := v.Visit(ctx.Expression(0)).(ir.Value)
 		targetType := v.resolveType(ctx.Type_())
+		v.logger.Debug("bit_cast to type %v", targetType)
 		return v.ctx.Builder.CreateBitCast(value, targetType, "")
 	}
 	
@@ -358,47 +365,53 @@ func (v *IRVisitor) VisitIntrinsicExpression(ctx *parser.IntrinsicExpressionCont
 	for _, expr := range ctx.AllExpression() {
 		argVal := v.Visit(expr)
 		if argVal == nil {
-			v.ctx.Diagnostics.Error("failed to evaluate intrinsic argument expression")
+			v.ctx.Logger.Error("Failed to evaluate intrinsic argument expression")
 			continue
 		}
 		val, ok := argVal.(ir.Value)
 		if !ok {
-			v.ctx.Diagnostics.Error("intrinsic argument is not a value")
+			v.ctx.Logger.Error("Intrinsic argument is not a value")
 			continue
 		}
 		args = append(args, val)
 	}
 	
-	// Handle memory intrinsics (memset, memcpy, memmove)
+	// Handle memory intrinsics
 	if ctx.MEMSET() != nil {
+		v.logger.Debug("Calling memset intrinsic")
 		return v.ctx.Builder.CreateCallByName("memset", types.NewPointer(types.Void), args, "")
 	}
 	
 	if ctx.MEMCPY() != nil {
+		v.logger.Debug("Calling memcpy intrinsic")
 		return v.ctx.Builder.CreateCallByName("memcpy", types.NewPointer(types.Void), args, "")
 	}
 	
 	if ctx.MEMMOVE() != nil {
+		v.logger.Debug("Calling memmove intrinsic")
 		return v.ctx.Builder.CreateCallByName("memmove", types.NewPointer(types.Void), args, "")
 	}
 	
 	// Handle string intrinsics
 	if ctx.STRLEN() != nil {
+		v.logger.Debug("Calling strlen intrinsic")
 		return v.ctx.Builder.CreateCallByName("strlen", types.U64, args, "")
 	}
 	
 	if ctx.MEMCHR() != nil {
+		v.logger.Debug("Calling memchr intrinsic")
 		return v.ctx.Builder.CreateCallByName("memchr", types.NewPointer(types.Void), args, "")
 	}
 	
 	if ctx.MEMCMP() != nil {
+		v.logger.Debug("Calling memcmp intrinsic")
 		return v.ctx.Builder.CreateCallByName("memcmp", types.I32, args, "")
 	}
 	
-	// Handle va_arg intrinsics (variadic argument handling)
+	// Handle va_arg intrinsics
 	if ctx.VA_START() != nil {
 		if len(args) < 1 {
-			v.ctx.Diagnostics.Error("va_start requires at least one argument")
+			v.ctx.Logger.Error("va_start requires at least one argument")
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		return v.ctx.Builder.CreateCallByName("llvm.va_start", types.Void, args, "")
@@ -406,34 +419,33 @@ func (v *IRVisitor) VisitIntrinsicExpression(ctx *parser.IntrinsicExpressionCont
 	
 	if ctx.VA_ARG() != nil {
 		if len(args) < 1 {
-			v.ctx.Diagnostics.Error("va_arg requires at least one argument")
+			v.ctx.Logger.Error("va_arg requires at least one argument")
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
-		// va_arg needs type parameter
 		targetType := v.resolveType(ctx.Type_())
 		return v.ctx.Builder.CreateCallByName("llvm.va_arg", targetType, args, "")
 	}
 	
 	if ctx.VA_END() != nil {
 		if len(args) < 1 {
-			v.ctx.Diagnostics.Error("va_end requires at least one argument")
+			v.ctx.Logger.Error("va_end requires at least one argument")
 			return v.ctx.Builder.ConstInt(types.I64, 0)
 		}
 		return v.ctx.Builder.CreateCallByName("llvm.va_end", types.Void, args, "")
 	}
 	
-	// Handle raise (abort with message)
+	// Handle raise
 	if ctx.RAISE() != nil {
-		// Call the raise function, then emit unreachable
+		v.logger.Debug("Calling raise intrinsic")
 		v.ctx.Builder.CreateCallByName("raise", types.Void, args, "")
 		v.ctx.Builder.CreateUnreachable()
 		return v.ctx.Builder.ConstInt(types.I64, 0)
 	}
 	
-	// Fallback for IDENTIFIER-based intrinsics (if grammar supports it)
+	// Fallback for IDENTIFIER-based intrinsics
 	if ctx.IDENTIFIER() != nil {
 		intrinsicName := ctx.IDENTIFIER().GetText()
-		v.ctx.Diagnostics.Error(fmt.Sprintf("unknown intrinsic: %s", intrinsicName))
+		v.ctx.Logger.Error("Unknown intrinsic: %s", intrinsicName)
 	}
 	
 	return v.ctx.Builder.ConstInt(types.I64, 0)
@@ -449,18 +461,15 @@ func (v *IRVisitor) calculateSizeOf(typ types.Type) int {
 	case *types.PointerType:
 		return 8 // 64-bit pointers
 	case *types.StructType:
-		// Calculate struct size with padding
 		size := 0
 		for _, field := range t.Fields {
 			fieldSize := v.calculateSizeOf(field)
 			fieldAlign := v.calculateAlignOf(field)
-			// Align field
 			if size%fieldAlign != 0 {
 				size += fieldAlign - (size % fieldAlign)
 			}
 			size += fieldSize
 		}
-		// Align struct to its own alignment
 		structAlign := v.calculateAlignOf(typ)
 		if size%structAlign != 0 {
 			size += structAlign - (size % structAlign)
@@ -517,15 +526,17 @@ func (v *IRVisitor) VisitStructLiteral(ctx *parser.StructLiteralContext) interfa
 	name := ctx.IDENTIFIER().GetText()
 	typ, ok := v.ctx.GetType(name)
 	if !ok {
-		v.ctx.Diagnostics.Error(fmt.Sprintf("unknown struct/class type: %s", name))
+		v.ctx.Logger.Error("Unknown struct/class type: %s", name)
 		return v.ctx.Builder.ConstInt(types.I64, 0)
 	}
 	
 	structType, ok := typ.(*types.StructType)
 	if !ok {
-		v.ctx.Diagnostics.Error(fmt.Sprintf("%s is not a struct/class type", name))
+		v.ctx.Logger.Error("%s is not a struct/class type", name)
 		return v.ctx.Builder.ConstInt(types.I64, 0)
 	}
+
+	v.logger.Debug("Creating struct literal for type: %s", name)
 
 	// Check if this is a class (requires heap allocation)
 	if v.ctx.IsClassType(name) {
@@ -551,7 +562,7 @@ func (v *IRVisitor) VisitStructLiteral(ctx *parser.StructLiteralContext) interfa
 			}
 			
 			if idx < 0 {
-				v.ctx.Diagnostics.Error(fmt.Sprintf("class %s has no field %s", name, fieldName))
+				v.ctx.Logger.Error("Class %s has no field %s", name, fieldName)
 				continue
 			}
 			
@@ -572,7 +583,7 @@ func (v *IRVisitor) VisitStructLiteral(ctx *parser.StructLiteralContext) interfa
 		
 		idx := v.findFieldIndex(structType, fieldName)
 		if idx < 0 {
-			v.ctx.Diagnostics.Error(fmt.Sprintf("struct %s has no field %s", name, fieldName))
+			v.ctx.Logger.Error("Struct %s has no field %s", name, fieldName)
 			continue
 		}
 		
@@ -640,6 +651,8 @@ func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) inter
 	destType := v.resolveType(ctx.Type_())
 	srcType := val.Type()
 	
+	v.logger.Debug("Casting from %v to %v", srcType, destType)
+	
 	if types.IsPointer(srcType) && types.IsInteger(destType) {
 		return v.ctx.Builder.CreatePtrToInt(val, destType, "")
 	}
@@ -692,6 +705,8 @@ func (v *IRVisitor) VisitCastExpression(ctx *parser.CastExpressionContext) inter
 func (v *IRVisitor) VisitAllocaExpression(ctx *parser.AllocaExpressionContext) interface{} {
 	allocType := v.resolveType(ctx.Type_())
 	
+	v.logger.Debug("Creating alloca for type: %v", allocType)
+	
 	if ctx.Expression() != nil {
 		count := v.Visit(ctx.Expression()).(ir.Value)
 		return v.ctx.Builder.CreateAllocaWithCount(allocType, count, "")
@@ -703,15 +718,17 @@ func (v *IRVisitor) VisitAllocaExpression(ctx *parser.AllocaExpressionContext) i
 func (v *IRVisitor) VisitSyscallExpression(ctx *parser.SyscallExpressionContext) interface{} {
 	exprs := ctx.AllExpression()
 	if len(exprs) == 0 {
-		v.ctx.Diagnostics.Error("syscall requires at least a syscall number")
+		v.ctx.Logger.Error("syscall requires at least a syscall number")
 		return v.ctx.Builder.ConstInt(types.I64, -1)
 	}
+
+	v.logger.Debug("Creating syscall with %d arguments", len(exprs))
 
 	args := make([]ir.Value, len(exprs))
 	for i, expr := range exprs {
 		val := v.Visit(expr).(ir.Value)
 		
-		// Auto-cast integers to I64 for the builder
+		// Auto-cast integers to I64
 		if types.IsInteger(val.Type()) {
 			if val.Type().BitSize() < 64 {
 				val = v.ctx.Builder.CreateSExt(val, types.I64, "")
@@ -730,12 +747,12 @@ func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface
 	for _, expr := range ctx.AllExpression() {
 		arg := v.Visit(expr)
 		if arg == nil {
-			v.ctx.Diagnostics.Error("failed to evaluate argument expression")
+			v.ctx.Logger.Error("Failed to evaluate argument expression")
 			continue
 		}
 		argVal, ok := arg.(ir.Value)
 		if !ok {
-			v.ctx.Diagnostics.Error("argument expression did not produce a value")
+			v.ctx.Logger.Error("Argument expression did not produce a value")
 			continue
 		}
 		args = append(args, argVal)

@@ -9,9 +9,11 @@ import (
 )
 
 func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
-	// Generate unique suffix based on the source position (Line_Column).
+	// Generate unique suffix based on the source position (Line_Column)
 	token := ctx.GetStart()
 	uniqueID := fmt.Sprintf("%d_%d", token.GetLine(), token.GetColumn())
+
+	v.logger.Debug("Compiling if statement at %s", uniqueID)
 
 	mergeBlock := v.ctx.Builder.CreateBlock("if.end." + uniqueID)
 
@@ -34,6 +36,7 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	count := len(ctx.AllIF())
 
 	for i := 1; i < count; i++ {
+		v.logger.Debug("Compiling else-if branch %d", i)
 		cond := v.Visit(ctx.Expression(i)).(ir.Value)
 		
 		// Use index 'i' to ensure unique block names for else-if chains
@@ -56,6 +59,7 @@ func (v *IRVisitor) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 
 	// Final else block (if present)
 	if len(ctx.AllBlock()) > count {
+		v.logger.Debug("Compiling else block")
 		v.Visit(ctx.Block(count))
 	}
 
@@ -81,6 +85,8 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 	// Standard for-loop (C-style)
 	token := ctx.GetStart()
 	uniqueID := fmt.Sprintf("%d_%d", token.GetLine(), token.GetColumn())
+
+	v.logger.Debug("Compiling C-style for loop at %s", uniqueID)
 
 	semicolons := ctx.AllSEMICOLON()
 	isClause := len(semicolons) == 2
@@ -173,12 +179,12 @@ func (v *IRVisitor) VisitForStmt(ctx *parser.ForStmtContext) interface{} {
 func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
 	// Format: for IDENTIFIER in EXPRESSION { BLOCK }
 	varName := ctx.IDENTIFIER(0).GetText()
+	
+	v.logger.Debug("Compiling for-in loop with variable '%s'", varName)
 
 	// 1. Unpack the Range Expression
-	// The grammar wraps the range deeply: Expression -> LogicalOr -> ... -> Range
 	expr := ctx.Expression(0)
 	
-	// FIX: Use interface type, not struct pointer
 	var rngCtx parser.IRangeExpressionContext
 	
 	// Safe navigation down the AST to find RangeExpression
@@ -194,7 +200,7 @@ func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
 
 	// Check if we actually found a range ".."
 	if rngCtx == nil || rngCtx.RANGE() == nil {
-		v.ctx.Diagnostics.Error("for-in loop expects a range (e.g., 1..10)")
+		v.ctx.Logger.Error("for-in loop expects a range (e.g., 1..10)")
 		return nil
 	}
 
@@ -204,19 +210,15 @@ func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
 
 	// Basic type check
 	if !startVal.Type().Equal(endVal.Type()) {
-		// In a production compiler, insert implicit cast here.
-		// For now, assume they match (e.g. both i64 literals)
+		v.logger.Warning("Range start and end types differ, may need implicit cast")
 	}
 
 	// 3. Setup Loop Variable
-	// Allocate stack space for 'x'
 	loopVarType := startVal.Type()
 	loopVarPtr := v.ctx.Builder.CreateAlloca(loopVarType, varName+".addr")
 	
-	// Initialize 'x = start'
+	// Initialize loop variable
 	v.ctx.Builder.CreateStore(startVal, loopVarPtr)
-	
-	// Register 'x' in the current scope so the block can see it
 	v.ctx.currentScope.Define(varName, loopVarPtr)
 
 	// 4. Create Blocks
@@ -234,13 +236,11 @@ func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
 	v.ctx.SetInsertBlock(condBlock)
 	currVal := v.ctx.Builder.CreateLoad(loopVarType, loopVarPtr, "")
 	
-	// Create comparison (Signed Less Than)
 	cmp := v.ctx.Builder.CreateICmpSLT(currVal, endVal, "")
 	v.ctx.Builder.CreateCondBr(cmp, bodyBlock, endBlock)
 
 	// 6. Body Block
 	v.ctx.SetInsertBlock(bodyBlock)
-	// 'continue' goes to step, 'break' goes to end
 	v.ctx.PushLoop(stepBlock, endBlock) 
 	v.Visit(ctx.Block())
 	v.ctx.PopLoop()
@@ -253,12 +253,10 @@ func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
 	v.ctx.SetInsertBlock(stepBlock)
 	currValForStep := v.ctx.Builder.CreateLoad(loopVarType, loopVarPtr, "")
 	
-	// Create constant '1' with correct type
 	var one ir.Constant
 	if intType, ok := loopVarType.(*types.IntType); ok {
 		one = v.ctx.Builder.ConstInt(intType, 1)
 	} else {
-		// Fallback for non-int types (shouldn't happen in simple ranges)
 		one = v.ctx.Builder.ConstInt(types.I64, 1)
 	}
 
@@ -274,9 +272,10 @@ func (v *IRVisitor) visitForInLoop(ctx *parser.ForStmtContext) interface{} {
 func (v *IRVisitor) VisitBreakStmt(ctx *parser.BreakStmtContext) interface{} {
 	loop := v.ctx.CurrentLoop()
 	if loop == nil {
-		v.ctx.Diagnostics.Error("break statement outside of loop")
+		v.ctx.Logger.Error("break statement outside of loop")
 		return nil
 	}
+	v.logger.Debug("Emitting break instruction")
 	v.ctx.Builder.CreateBr(loop.BreakBlock)
 	return nil
 }
@@ -284,9 +283,10 @@ func (v *IRVisitor) VisitBreakStmt(ctx *parser.BreakStmtContext) interface{} {
 func (v *IRVisitor) VisitContinueStmt(ctx *parser.ContinueStmtContext) interface{} {
 	loop := v.ctx.CurrentLoop()
 	if loop == nil {
-		v.ctx.Diagnostics.Error("continue statement outside of loop")
+		v.ctx.Logger.Error("continue statement outside of loop")
 		return nil
 	}
+	v.logger.Debug("Emitting continue instruction")
 	v.ctx.Builder.CreateBr(loop.ContinueBlock)
 	return nil
 }

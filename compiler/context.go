@@ -5,7 +5,6 @@ import (
 	"github.com/arc-language/core-builder/builder"
 	"github.com/arc-language/core-builder/ir"
 	"github.com/arc-language/core-builder/types"
-	"github.com/arc-language/core-compiler/diagnostics"
 )
 
 // LoopInfo holds the target blocks for control flow within a loop
@@ -45,10 +44,10 @@ func (ns *Namespace) LookupFunction(name string) (*ir.Function, bool) {
 
 // Context holds the state during compilation
 type Context struct {
-	Builder     *builder.Builder
-	Module      *ir.Module
-	Diagnostics *diagnostics.DiagnosticEngine
-	Importer    *Importer
+	Builder  *builder.Builder
+	Module   *ir.Module
+	Importer *Importer
+	Logger   *Logger
 	
 	// Current compilation scope
 	currentFunction *ir.Function
@@ -90,11 +89,12 @@ func NewContext(entryFile string, moduleName string) *Context {
 	mod := b.CreateModule(moduleName)
 	
 	rootNs := NewNamespace("", nil)
+	logger := NewLogger("[Context]")
 	
 	ctx := &Context{
 		Builder:            b,
 		Module:             mod,
-		Diagnostics:        diagnostics.NewDiagnosticEngine(),
+		Logger:             logger,
 		Importer:           NewImporter(entryFile),
 		globalScope:        NewScope(nil),
 		namedTypes:         make(map[string]types.Type),
@@ -111,6 +111,8 @@ func NewContext(entryFile string, moduleName string) *Context {
 	ctx.currentScope = ctx.globalScope
 	ctx.registerBuiltinTypes()
 	
+	logger.Debug("Context initialized for module '%s'", moduleName)
+	
 	return ctx
 }
 
@@ -119,12 +121,14 @@ func (c *Context) SetNamespace(name string) *Namespace {
 	// If the namespace name is empty, we are in the root
 	if name == "" {
 		c.currentNamespace = c.rootNamespace
+		c.Logger.Debug("Set namespace to root")
 		return c.rootNamespace
 	}
 
 	// Check registry first (cross-file persistence)
 	if ns, ok := c.NamespaceRegistry[name]; ok {
 		c.currentNamespace = ns
+		c.Logger.Debug("Switched to existing namespace '%s'", name)
 		return ns
 	}
 
@@ -132,6 +136,7 @@ func (c *Context) SetNamespace(name string) *Namespace {
 	ns := NewNamespace(name, c.rootNamespace)
 	c.NamespaceRegistry[name] = ns
 	c.currentNamespace = ns
+	c.Logger.Debug("Created new namespace '%s'", name)
 	return ns
 }
 
@@ -145,6 +150,7 @@ func (c *Context) GetOrCreateNamespace(name string) *Namespace {
 	}
 	ns := NewNamespace(name, c.rootNamespace)
 	c.NamespaceRegistry[name] = ns
+	c.Logger.Debug("Created namespace '%s' via GetOrCreate", name)
 	return ns
 }
 
@@ -202,6 +208,8 @@ func (c *Context) registerBuiltinTypes() {
 	c.namedTypes["bool"] = types.I1
 	c.namedTypes["char"] = types.U32 // Unicode code point (uint32)
 	c.namedTypes["string"] = types.NewPointer(types.I8) // For now, *i8
+	
+	c.Logger.Debug("Registered %d builtin types", len(c.namedTypes))
 }
 
 // GetType resolves a type name to a Type
@@ -220,6 +228,8 @@ func (c *Context) RegisterType(name string, typ types.Type) {
 	if structTy, ok := typ.(*types.StructType); ok {
 		c.Module.Types[name] = structTy
 	}
+	
+	c.Logger.Debug("Registered type '%s'", name)
 }
 
 // RegisterClass registers a class type (reference type)
@@ -232,6 +242,8 @@ func (c *Context) RegisterClass(name string, typ types.Type) {
 	if structTy, ok := typ.(*types.StructType); ok {
 		c.Module.Types[name] = structTy
 	}
+	
+	c.Logger.Debug("Registered class type '%s'", name)
 }
 
 // IsClassType checks if a type name refers to a class
@@ -242,12 +254,14 @@ func (c *Context) IsClassType(name string) bool {
 // PushScope creates a new nested scope
 func (c *Context) PushScope() {
 	c.currentScope = NewScope(c.currentScope)
+	c.Logger.Debug("Pushed new scope")
 }
 
 // PopScope returns to the parent scope
 func (c *Context) PopScope() {
 	if c.currentScope.parent != nil {
 		c.currentScope = c.currentScope.parent
+		c.Logger.Debug("Popped scope")
 	}
 }
 
@@ -264,10 +278,16 @@ func (c *Context) EnterFunction(fn *ir.Function) {
 	
 	// Initialize deferred statements for this function
 	c.deferredStmts = append(c.deferredStmts, make([]ir.Instruction, 0))
+	
+	c.Logger.Debug("Entered function '%s'", fn.Name())
 }
 
 // ExitFunction cleans up after compiling a function
 func (c *Context) ExitFunction() {
+	if c.currentFunction != nil {
+		c.Logger.Debug("Exited function '%s'", c.currentFunction.Name())
+	}
+	
 	c.currentFunction = nil
 	c.currentBlock = nil
 	c.PopScope()
@@ -309,11 +329,13 @@ func (c *Context) PushLoop(cont, brk *ir.BasicBlock) {
 		ContinueBlock: cont,
 		BreakBlock:    brk,
 	})
+	c.Logger.Debug("Pushed loop context")
 }
 
 func (c *Context) PopLoop() {
 	if len(c.loopStack) > 0 {
 		c.loopStack = c.loopStack[:len(c.loopStack)-1]
+		c.Logger.Debug("Popped loop context")
 	}
 }
 

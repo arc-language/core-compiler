@@ -19,24 +19,24 @@ func (v *IRVisitor) VisitImportDecl(ctx *parser.ImportDeclContext) interface{} {
 	rawPath := ctx.STRING_LITERAL().GetText()
 	importPath := strings.Trim(rawPath, "\"")
 
-	fmt.Printf("DEBUG: Processing import: %s from %s\n", importPath, v.currentFile)
+	v.logger.Info("Processing import: %s from %s", importPath, v.currentFile)
 
 	// 2. Resolve absolute directory path
 	currentDir := filepath.Dir(v.currentFile)
 	absPath, err := v.ctx.Importer.ResolvePath(currentDir, importPath)
 	if err != nil {
-		v.ctx.Diagnostics.Error(fmt.Sprintf("import resolution failed: %v", err))
+		v.ctx.Logger.Error("Import resolution failed for '%s': %v", importPath, err)
 		return nil
 	}
 
 	// 3. Compile that package (recursively)
 	pkgInfo, err := v.compiler.CompilePackage(absPath) 
 	if err != nil {
-		v.ctx.Diagnostics.Error(fmt.Sprintf("failed to compile package %s: %v", importPath, err))
+		v.ctx.Logger.Error("Failed to compile package '%s': %v", importPath, err)
 		return nil
 	}
 
-	fmt.Printf("DEBUG: Successfully imported package '%s' (namespace: %s)\n", importPath, pkgInfo.Name)
+	v.logger.Info("Successfully imported package '%s' (namespace: %s)", importPath, pkgInfo.Name)
 	return nil
 }
 
@@ -49,7 +49,7 @@ func (v *IRVisitor) VisitExternDecl(ctx *parser.ExternDeclContext) interface{} {
 	
 	if ctx.IDENTIFIER() != nil {
 		namespaceName = ctx.IDENTIFIER().GetText()
-		fmt.Printf("DEBUG: Processing extern namespace: %s\n", namespaceName)
+		v.logger.Debug("Processing extern namespace: %s", namespaceName)
 		
 		// Temporarily switch namespace for these externs
 		oldNamespace := v.ctx.currentNamespace
@@ -103,13 +103,12 @@ func (v *IRVisitor) VisitExternFunctionDecl(ctx *parser.ExternFunctionDeclContex
 	fn := v.ctx.Builder.DeclareFunction(name, retType, paramTypes, variadic)
 	
 	// Register in current namespace
-	// If current namespace is root, it goes to global scope
-	// If it is a specific namespace, it is registered there
 	if v.ctx.currentNamespace != nil {
 		v.ctx.currentNamespace.Functions[name] = fn
-		fmt.Printf("DEBUG: Declared extern function %s in namespace %s\n", name, v.ctx.currentNamespace.Name)
+		v.logger.Debug("Declared extern function '%s' in namespace '%s'", name, v.ctx.currentNamespace.Name)
 	} else {
 		v.ctx.currentScope.Define(name, fn)
+		v.logger.Debug("Declared extern function '%s' in global scope", name)
 	}
 	
 	return nil
@@ -141,22 +140,16 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 	}
 	
 	// Handle Namespacing
-	// If we are in a namespace (e.g. "utils"), the function name in IR becomes "utils_Func"
-	// but it is stored in the Namespace map as "Func".
-	// The LLVM IR name should be unique.
 	var irName string = name
 	
-	// Special Case: The main function in the main namespace should NOT be mangled
-	// This ensures the linker can find the entry point.
+	// Special Case: main function should not be mangled
 	isMain := name == "main" && (v.ctx.currentNamespace == nil || v.ctx.currentNamespace.Name == "main" || v.ctx.currentNamespace.Name == "")
 	
 	if !isMain && v.ctx.currentNamespace != nil && v.ctx.currentNamespace.Name != "" {
-		// Check if it already has a prefix (methods might not need namespace prefix if type is unique?)
-		// For now, namespace prefixing for everything inside a namespace
 		irName = v.ctx.currentNamespace.Name + "_" + name
 	}
 
-	fmt.Printf("DEBUG VisitFunctionDecl: Declaring function: %s (IR: %s)\n", name, irName)
+	v.logger.Debug("Declaring function: %s (IR: %s)", name, irName)
 	
 	var retType types.Type = types.Void
 	if ctx.Type_() != nil {
@@ -179,7 +172,7 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 			paramTypes = append(paramTypes, paramType)
 		}
 	}
-	
+
 	fn := v.ctx.Builder.CreateFunction(irName, retType, paramTypes, variadic)
 	
 	// Register function in the current namespace
@@ -228,6 +221,8 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
 	
+	v.logger.Debug("Declaring variable: %s", name)
+	
 	var varType types.Type
 	if ctx.Type_() != nil {
 		varType = v.resolveType(ctx.Type_())
@@ -241,7 +236,7 @@ func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface
 		}
 	} else {
 		if varType == nil {
-			v.ctx.Diagnostics.Error(fmt.Sprintf("variable '%s' needs type annotation or initializer", name))
+			v.ctx.Logger.Error("Variable '%s' needs type annotation or initializer", name)
 			return nil
 		}
 		initValue = v.getZeroValue(varType)
@@ -257,8 +252,10 @@ func (v *IRVisitor) VisitVariableDecl(ctx *parser.VariableDeclContext) interface
 func (v *IRVisitor) VisitConstDecl(ctx *parser.ConstDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
 	
+	v.logger.Debug("Declaring constant: %s", name)
+	
 	if ctx.Expression() == nil {
-		v.ctx.Diagnostics.Error(fmt.Sprintf("constant '%s' must have an initializer", name))
+		v.ctx.Logger.Error("Constant '%s' must have an initializer", name)
 		return nil
 	}
 	
