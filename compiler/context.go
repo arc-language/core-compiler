@@ -209,6 +209,9 @@ func (c *Context) registerBuiltinTypes() {
 	c.namedTypes["char"] = types.U32 // Unicode code point (uint32)
 	c.namedTypes["string"] = types.NewPointer(types.I8) // For now, *i8
 	
+	// Variadic arguments support
+	c.namedTypes["va_list"] = types.NewPointer(types.I8)
+	
 	c.Logger.Debug("Registered %d builtin types", len(c.namedTypes))
 }
 
