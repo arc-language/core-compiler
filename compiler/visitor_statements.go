@@ -11,20 +11,6 @@ import (
 )
 
 func (v *IRVisitor) VisitStatement(ctx *parser.StatementContext) interface{} {
-	fmt.Printf("DEBUG VisitStatement: Statement text: %s\n", ctx.GetText())
-	fmt.Printf("DEBUG VisitStatement: Type of statement:\n")
-	fmt.Printf("  VariableDecl: %v\n", ctx.VariableDecl() != nil)
-	fmt.Printf("  ConstDecl: %v\n", ctx.ConstDecl() != nil)
-	fmt.Printf("  AssignmentStmt: %v\n", ctx.AssignmentStmt() != nil)
-	fmt.Printf("  ReturnStmt: %v\n", ctx.ReturnStmt() != nil)
-	fmt.Printf("  IfStmt: %v\n", ctx.IfStmt() != nil)
-	fmt.Printf("  ForStmt: %v\n", ctx.ForStmt() != nil)
-	fmt.Printf("  BreakStmt: %v\n", ctx.BreakStmt() != nil)
-	fmt.Printf("  ContinueStmt: %v\n", ctx.ContinueStmt() != nil)
-	fmt.Printf("  DeferStmt: %v\n", ctx.DeferStmt() != nil)
-	fmt.Printf("  ExpressionStmt: %v\n", ctx.ExpressionStmt() != nil)
-	fmt.Printf("  Block: %v\n", ctx.Block() != nil)
-	
 	if ctx.VariableDecl() != nil {
 		return v.Visit(ctx.VariableDecl())
 	}
@@ -63,20 +49,9 @@ func (v *IRVisitor) VisitStatement(ctx *parser.StatementContext) interface{} {
 
 func (v *IRVisitor) VisitBlock(ctx *parser.BlockContext) interface{} {
 	stmts := ctx.AllStatement()
-	fmt.Printf("DEBUG VisitBlock: %d statements\n", len(stmts))
-	
-	for i, stmt := range stmts {
-		stmtText := stmt.GetText()
-		if len(stmtText) > 100 {
-			stmtText = stmtText[:100] + "..."
-		}
-		fmt.Printf("DEBUG VisitBlock: Statement %d text: %s\n", i, stmtText)
-	}
-	
 	v.ctx.PushScope()
 	
 	for i, stmt := range stmts {
-		fmt.Printf("DEBUG VisitBlock: Processing statement %d/%d\n", i+1, len(stmts))
 		v.Visit(stmt)
 		
 		// Stop if we hit a terminator
@@ -87,27 +62,15 @@ func (v *IRVisitor) VisitBlock(ctx *parser.BlockContext) interface{} {
 	}
 	
 	v.ctx.PopScope()
-	fmt.Printf("DEBUG VisitBlock: completed\n")
 	return nil
 }
 
 func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) interface{} {
 	lhsCtx := ctx.LeftHandSide()
 	
-	fmt.Printf("DEBUG VisitAssignmentStmt:\n")
-	fmt.Printf("  LHS has IDENTIFIER: %v\n", lhsCtx.IDENTIFIER() != nil)
-	if lhsCtx.IDENTIFIER() != nil {
-		fmt.Printf("  LHS IDENTIFIER: %s\n", lhsCtx.IDENTIFIER().GetText())
-	}
-	fmt.Printf("  LHS has STAR: %v\n", lhsCtx.STAR() != nil)
-	fmt.Printf("  LHS has DOT: %v\n", lhsCtx.DOT() != nil)
-	fmt.Printf("  LHS has PostfixExpression: %v\n", lhsCtx.PostfixExpression() != nil)
-	fmt.Printf("  RHS expression: %s\n", ctx.Expression().GetText())
-	
 	// Simple Variable Assignment: IDENTIFIER = value
 	if lhsCtx.IDENTIFIER() != nil && lhsCtx.DOT() == nil && lhsCtx.STAR() == nil {
 		name := lhsCtx.IDENTIFIER().GetText()
-		fmt.Printf("DEBUG: Simple variable assignment to: %s\n", name)
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
 		
 		sym, ok := v.ctx.currentScope.Lookup(name)
@@ -132,7 +95,6 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 	
 	// Pointer Assignment: *ptr = value
 	if lhsCtx.STAR() != nil {
-		fmt.Printf("DEBUG: Pointer dereference assignment\n")
 		ptr := v.Visit(lhsCtx.PostfixExpression()).(ir.Value)
 		rhs := v.Visit(ctx.Expression()).(ir.Value)
 		v.ctx.Builder.CreateStore(rhs, ptr)
@@ -141,39 +103,24 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 	
 	// Field Assignment: obj.field = value
 	if lhsCtx.DOT() != nil && lhsCtx.PostfixExpression() != nil {
-		fmt.Printf("DEBUG: Field assignment\n")
 		postfixCtx := lhsCtx.PostfixExpression()
 		var basePtr ir.Value
-		
-		// Try to get the base object text for lookup
-		baseText := postfixCtx.GetText()
-		fmt.Printf("DEBUG: Base postfix expression text: %s\n", baseText)
 		
 		// Check if the postfix expression is just a simple identifier
 		if postfixCtx.PrimaryExpression() != nil {
 			primaryCtx := postfixCtx.PrimaryExpression()
 			if primaryCtx.IDENTIFIER() != nil {
 				varName := primaryCtx.IDENTIFIER().GetText()
-				fmt.Printf("DEBUG: Base is simple identifier: %s\n", varName)
 				
 				if sym, ok := v.ctx.currentScope.Lookup(varName); ok {
-					fmt.Printf("DEBUG: Found symbol for base: %s\n", varName)
 					if alloca, isAlloca := sym.Value.(*ir.AllocaInst); isAlloca {
-						fmt.Printf("DEBUG: Symbol is alloca, allocated type: %v\n", alloca.AllocatedType)
-						
 						// Check what the alloca contains
-						if ptrType, isPtr := alloca.AllocatedType.(*types.PointerType); isPtr {
+						if _, isPtr := alloca.AllocatedType.(*types.PointerType); isPtr {
 							// It's a pointer to something - load it
-							fmt.Printf("DEBUG: Allocated type is pointer to: %v\n", ptrType.ElementType)
-							// Load the pointer value itself (not dereferencing to the struct)
 							basePtr = v.ctx.Builder.CreateLoad(alloca.AllocatedType, alloca, "")
-							fmt.Printf("DEBUG: Loaded pointer from alloca, result type: %v\n", basePtr.Type())
 						} else if _, isStruct := alloca.AllocatedType.(*types.StructType); isStruct {
 							// Direct struct allocation - use the alloca address
 							basePtr = alloca
-							fmt.Printf("DEBUG: Using alloca as base pointer for direct struct\n")
-						} else {
-							fmt.Printf("DEBUG: Allocated type is neither pointer nor struct: %v\n", alloca.AllocatedType)
 						}
 					}
 				}
@@ -181,57 +128,39 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 		}
 		
 		if basePtr == nil {
-			fmt.Printf("DEBUG: Fallback - visiting postfix expression for base\n")
 			basePtr = v.Visit(postfixCtx).(ir.Value)
-			fmt.Printf("DEBUG: Base pointer type: %v\n", basePtr.Type())
 		}
 		
 		fieldName := lhsCtx.IDENTIFIER().GetText()
-		fmt.Printf("DEBUG: Field name: %s\n", fieldName)
-		fmt.Printf("DEBUG: basePtr is nil: %v\n", basePtr == nil)
-		if basePtr != nil {
-			fmt.Printf("DEBUG: basePtr type: %v\n", basePtr.Type())
-		}
 		
 		// Now basePtr should be a pointer to a struct
 		if basePtr != nil {
 			if ptrType, ok := basePtr.Type().(*types.PointerType); ok {
-				fmt.Printf("DEBUG: Base is pointer type, element: %v\n", ptrType.ElementType)
 				if structType, ok := ptrType.ElementType.(*types.StructType); ok {
-					fmt.Printf("DEBUG: Element is struct type: %s\n", structType.Name)
 					
 					isClass := v.ctx.IsClassType(structType.Name)
-					fmt.Printf("DEBUG: Is class type: %v\n", isClass)
-					
 					var fieldIdx int = -1
 					
 					if isClass {
 						if fieldIndices, ok := v.ctx.ClassFieldIndices[structType.Name]; ok {
 							if idx, ok := fieldIndices[fieldName]; ok {
 								fieldIdx = idx
-								fmt.Printf("DEBUG: Found field index in class: %d\n", fieldIdx)
 							}
 						}
 					} else {
 						fieldIdx = v.findFieldIndex(structType, fieldName)
-						fmt.Printf("DEBUG: Found field index in struct: %d\n", fieldIdx)
 					}
 					
 					if fieldIdx >= 0 {
 						gep := v.ctx.Builder.CreateStructGEP(structType, basePtr, fieldIdx, "")
 						rhs := v.Visit(ctx.Expression()).(ir.Value)
 						v.ctx.Builder.CreateStore(rhs, gep)
-						fmt.Printf("DEBUG: Field assignment completed successfully\n")
 						return nil
 					} else {
 						v.ctx.Diagnostics.Error(fmt.Sprintf("struct/class '%s' has no field '%s'", structType.Name, fieldName))
 						return nil
 					}
-				} else {
-					fmt.Printf("DEBUG: Element is not a struct type: %v\n", ptrType.ElementType)
 				}
-			} else {
-				fmt.Printf("DEBUG: Base is not a pointer type: %v\n", basePtr.Type())
 			}
 		}
 		
@@ -244,11 +173,6 @@ func (v *IRVisitor) VisitAssignmentStmt(ctx *parser.AssignmentStmtContext) inter
 }
 
 func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
-	fmt.Printf("DEBUG VisitReturnStmt: Has expression: %v\n", ctx.Expression() != nil)
-	if ctx.Expression() != nil {
-		fmt.Printf("DEBUG VisitReturnStmt: Expression text: %s\n", ctx.Expression().GetText())
-	}
-	
 	// Execute deferred statements
 	deferred := v.ctx.GetDeferredStmts()
 	for i := len(deferred) - 1; i >= 0; i-- {
@@ -256,9 +180,7 @@ func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 	}
 	
 	if ctx.Expression() != nil {
-		fmt.Printf("DEBUG VisitReturnStmt: About to visit return expression\n")
 		retVal := v.Visit(ctx.Expression()).(ir.Value)
-		fmt.Printf("DEBUG VisitReturnStmt: Return value type: %v\n", retVal.Type())
 		
 		// Cast to expected return type if needed
 		if v.ctx.currentFunction != nil {
@@ -269,19 +191,14 @@ func (v *IRVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interface{} {
 		}
 		
 		v.ctx.Builder.CreateRet(retVal)
-		fmt.Printf("DEBUG VisitReturnStmt: Created return instruction\n")
 	} else {
 		v.ctx.Builder.CreateRetVoid()
-		fmt.Printf("DEBUG VisitReturnStmt: Created void return\n")
 	}
 	
-	fmt.Printf("DEBUG VisitReturnStmt: completed\n")
 	return nil
 }
 
 func (v *IRVisitor) VisitExpressionStmt(ctx *parser.ExpressionStmtContext) interface{} {
-	fmt.Printf("DEBUG VisitExpressionStmt: expression text = %s\n", ctx.Expression().GetText())
-	
 	// Check if this looks like an assignment that wasn't parsed as such
 	exprText := ctx.Expression().GetText()
 	if strings.Contains(exprText, "=") && !strings.Contains(exprText, "==") && !strings.Contains(exprText, "!=") {
@@ -289,7 +206,6 @@ func (v *IRVisitor) VisitExpressionStmt(ctx *parser.ExpressionStmtContext) inter
 	}
 	
 	v.Visit(ctx.Expression())
-	fmt.Printf("DEBUG VisitExpressionStmt: completed\n")
 	return nil
 }
 
@@ -299,26 +215,6 @@ func (v *IRVisitor) VisitDeferStmt(ctx *parser.DeferStmtContext) interface{} {
 	}
 	v.ctx.Diagnostics.Warning("defer statement is not fully implemented yet")
 	return nil
-}
-
-func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface{} {
-	// This visitor is used for extracting values from LHS for other purposes
-	// The actual assignment logic is in VisitAssignmentStmt
-	
-	if ctx.IDENTIFIER() != nil && ctx.DOT() == nil && ctx.STAR() == nil {
-		name := ctx.IDENTIFIER().GetText()
-		sym, ok := v.ctx.currentScope.Lookup(name)
-		if ok {
-			return sym.Value
-		}
-	}
-	if ctx.STAR() != nil {
-		return v.Visit(ctx.PostfixExpression())
-	}
-	if ctx.PostfixExpression() != nil {
-		return v.Visit(ctx.PostfixExpression())
-	}
-	return v.ctx.Builder.ConstInt(types.I64, 0)
 }
 
 // Helpers for token ordering

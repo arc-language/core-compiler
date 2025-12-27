@@ -161,7 +161,7 @@ func (v *IRVisitor) VisitCompilationUnit(ctx *parser.CompilationUnitContext) int
 	// Pass 2: Process everything else
 	fmt.Printf("DEBUG VisitCompilationUnit: Pass 2 - Processing declarations\n")
 	
-	for i, decl := range ctx.AllTopLevelDecl() {
+	for _, decl := range ctx.AllTopLevelDecl() {
 		if decl.FunctionDecl() != nil {
 			v.Visit(decl.FunctionDecl())
 		} else if decl.ExternDecl() != nil {
@@ -210,11 +210,6 @@ func (v *IRVisitor) VisitNamespaceDecl(ctx *parser.NamespaceDeclContext) interfa
 	return nil
 }
 
-func (v *IRVisitor) VisitImportDecl(ctx *parser.ImportDeclContext) interface{} {
-	// Handled in declarations visitor
-	return v.VisitImportDecl(ctx)
-}
-
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -260,11 +255,6 @@ func (v *IRVisitor) resolveType(ctx parser.ITypeContext) types.Type {
 			return typ
 		}
 		// If explicit type lookup fails, try looking in the namespace registry
-		// e.g., if we have `utils.MyType`, but parser gives us IDENTIFIER.
-		// NOTE: The parser grammar for types usually handles `IDENTIFIER` or `IDENTIFIER.IDENTIFIER`.
-		// If your grammar only supports simple identifiers for types, you can't type `utils.Type`.
-		// Assuming simple identifiers for now.
-		
 		v.ctx.Diagnostics.Error(fmt.Sprintf("unknown type: %s", name))
 		return types.I64
 	}
