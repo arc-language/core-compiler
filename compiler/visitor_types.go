@@ -1,7 +1,6 @@
 package compiler
 
 import (
-	"fmt"
 	"github.com/arc-language/core-builder/types"
 	"github.com/arc-language/core-parser"
 )
@@ -12,8 +11,11 @@ func (v *IRVisitor) registerStructType(ctx *parser.StructDeclContext) {
 	
 	// Check if already registered
 	if _, ok := v.ctx.GetType(name); ok {
+		v.logger.Debug("Struct type '%s' already registered", name)
 		return
 	}
+	
+	v.logger.Debug("Registering struct type: %s", name)
 	
 	// Create field map
 	fieldMap := make(map[string]int)
@@ -28,6 +30,7 @@ func (v *IRVisitor) registerStructType(ctx *parser.StructDeclContext) {
 			
 			fieldTypes = append(fieldTypes, fieldType)
 			fieldMap[fieldName] = fieldIndex
+			v.logger.Debug("  Field '%s' at index %d, type: %v", fieldName, fieldIndex, fieldType)
 			fieldIndex++
 		}
 	}
@@ -43,11 +46,11 @@ func (v *IRVisitor) registerStructType(ctx *parser.StructDeclContext) {
 func (v *IRVisitor) registerClassType(ctx *parser.ClassDeclContext) {
 	name := ctx.IDENTIFIER().GetText()
 	
-	fmt.Printf("DEBUG: Registering class type: %s\n", name)
+	v.logger.Info("Registering class type: %s", name)
 	
 	// Check if already registered
 	if _, ok := v.ctx.GetType(name); ok {
-		fmt.Printf("DEBUG: Class '%s' already registered\n", name)
+		v.logger.Debug("Class '%s' already registered", name)
 		return
 	}
 	
@@ -62,7 +65,7 @@ func (v *IRVisitor) registerClassType(ctx *parser.ClassDeclContext) {
 			fieldName := field.IDENTIFIER().GetText()
 			fieldType := v.resolveType(field.Type_())
 			
-			fmt.Printf("DEBUG: Class '%s' field '%s' at index %d, type: %v\n", name, fieldName, fieldIndex, fieldType)
+			v.logger.Debug("  Field '%s' at index %d, type: %v", fieldName, fieldIndex, fieldType)
 			
 			fieldTypes = append(fieldTypes, fieldType)
 			fieldMap[fieldName] = fieldIndex
@@ -72,17 +75,18 @@ func (v *IRVisitor) registerClassType(ctx *parser.ClassDeclContext) {
 	
 	// Register mapping in context
 	v.ctx.ClassFieldIndices[name] = fieldMap
-	fmt.Printf("DEBUG: Registered ClassFieldIndices[%s] = %v\n", name, fieldMap)
 
-	// Create struct type for the class - ENSURE NAME IS SET
+	// Create struct type for the class
 	structType := types.NewStruct(name, fieldTypes, false)
-	fmt.Printf("DEBUG: Created struct type with name: %s\n", structType.Name)
 	
 	v.ctx.RegisterClass(name, structType)
-	fmt.Printf("DEBUG: Registered class '%s' in context\n", name)
+	v.logger.Debug("Registered class '%s' with %d fields", name, len(fieldTypes))
 }
 
 func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
+	name := ctx.IDENTIFIER().GetText()
+	v.logger.Debug("Processing struct declaration: %s", name)
+	
 	// Type already registered in pass 1
 	// Now compile methods
 	for _, member := range ctx.AllStructMember() {
@@ -94,34 +98,31 @@ func (v *IRVisitor) VisitStructDecl(ctx *parser.StructDeclContext) interface{} {
 	return nil
 }
 
-// visitor_types.go - Enhanced VisitClassDecl
-
 func (v *IRVisitor) VisitClassDecl(ctx *parser.ClassDeclContext) interface{} {
 	name := ctx.IDENTIFIER().GetText()
-	fmt.Printf("DEBUG VisitClassDecl: Processing class %s\n", name)
+	v.logger.Info("Processing class declaration: %s", name)
 	
 	// Type already registered in pass 1
 	// Now compile methods
 	for i, member := range ctx.AllClassMember() {
-		fmt.Printf("DEBUG VisitClassDecl: Processing member %d of %d\n", i, len(ctx.AllClassMember()))
+		v.logger.Debug("Processing class member %d/%d", i+1, len(ctx.AllClassMember()))
 		if member.FunctionDecl() != nil {
-			fmt.Printf("DEBUG VisitClassDecl: Member %d is a function\n", i)
 			v.Visit(member.FunctionDecl())
 		} else if member.DeinitDecl() != nil {
-			fmt.Printf("DEBUG VisitClassDecl: Member %d is deinit\n", i)
 			v.Visit(member.DeinitDecl())
 		} else if member.ClassField() != nil {
-			fmt.Printf("DEBUG VisitClassDecl: Member %d is a field (skipping)\n", i)
+			// Fields are handled in registerClassType
+			v.logger.Debug("Skipping field (already registered)")
 		}
 	}
 	
-	fmt.Printf("DEBUG VisitClassDecl: Completed class %s\n", name)
+	v.logger.Info("Completed class declaration: %s", name)
 	return nil
 }
 
 func (v *IRVisitor) VisitClassField(ctx *parser.ClassFieldContext) interface{} {
 	// Field definitions are handled in registerClassType
-	fmt.Printf("DEBUG VisitClassField: Field %s (should not process here)\n", ctx.IDENTIFIER().GetText())
+	v.logger.Debug("VisitClassField called for: %s (should not process here)", ctx.IDENTIFIER().GetText())
 	return nil
 }
 
@@ -139,8 +140,6 @@ func (v *IRVisitor) VisitClassMember(ctx *parser.ClassMemberContext) interface{}
 }
 
 func (v *IRVisitor) VisitDeinitDecl(ctx *parser.DeinitDeclContext) interface{} {
-	// TODO: Implement deinit as a special destructor function
-	// This will be called when reference count reaches zero
-	v.ctx.Diagnostics.Warning("deinit is not yet implemented")
+	v.ctx.Logger.Warning("deinit is not yet implemented")
 	return nil
 }
