@@ -29,7 +29,7 @@ func NewImporter(entryFile string) *Importer {
 	logger.Debug("Created importer with entry directory: %s", filepath.Dir(absPath))
 	
 	return &Importer{
-		entry: filepath.Dir(absPath),
+		entryDir: filepath.Dir(absPath),
 		cache:    make(map[string]*PackageInfo),
 		logger:   logger,
 	}
