@@ -71,8 +71,8 @@ func handleBuild(args []string) {
 
 	fmt.Printf("Compiling %s...\n", inputFile)
 
-	// Create compiler
-	comp := compiler.NewCompiler(moduleName)
+	// Create compiler - Now passing moduleName AND inputFile
+	comp := compiler.NewCompiler(moduleName, inputFile)
 
 	// Compile source file
 	module, err := comp.CompileFile(inputFile)

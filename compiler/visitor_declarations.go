@@ -145,7 +145,12 @@ func (v *IRVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface
 	// but it is stored in the Namespace map as "Func".
 	// The LLVM IR name should be unique.
 	var irName string = name
-	if v.ctx.currentNamespace != nil && v.ctx.currentNamespace.Name != "" {
+	
+	// Special Case: The main function in the main namespace should NOT be mangled
+	// This ensures the linker can find the entry point.
+	isMain := name == "main" && (v.ctx.currentNamespace == nil || v.ctx.currentNamespace.Name == "main" || v.ctx.currentNamespace.Name == "")
+	
+	if !isMain && v.ctx.currentNamespace != nil && v.ctx.currentNamespace.Name != "" {
 		// Check if it already has a prefix (methods might not need namespace prefix if type is unique?)
 		// For now, namespace prefixing for everything inside a namespace
 		irName = v.ctx.currentNamespace.Name + "_" + name

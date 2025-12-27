@@ -1,6 +1,6 @@
 namespace main
 
-import "../somefolder/os"
+import "somefolder/os"
 
 // Linux x86_64 System Call Numbers
 const SYS_WRITE = 1
