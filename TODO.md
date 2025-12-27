@@ -1,9 +1,11 @@
 
 
+[DONE]
 1: structs & classes 
   - check the lang readme
   - inine and non inline support
 
+[DONE]
 2: importing and modules/packages, core modules
   - core modules use pure syscall, for macos they use linker 
   - need to add let result = syscall(100, ...) support to the parser, codegen and builder
@@ -11,6 +13,15 @@
   - and you also need module for platform checker
   - 	"github.com/arc-language/io"
   - io.printf()
+
+
+
+3: add the new Intrinsics to the parser, builder, codegen and compiler
+ - use the Intrinsics to help with core modules, io and fs
+ - if you need more Intrinsics to help then just add more
+
+
+
 
 2:
 Rule of Thumb
