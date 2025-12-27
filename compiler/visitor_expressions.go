@@ -145,7 +145,12 @@ func (v *IRVisitor) visitPostfixOp(base ir.Value, ctx *parser.PostfixOpContext, 
 	if ctx.LPAREN() != nil {
 		var args []ir.Value
 		if ctx.ArgumentList() != nil {
-			args = v.Visit(ctx.ArgumentList()).([]ir.Value)
+			argResult := v.Visit(ctx.ArgumentList())
+			if argResult != nil {
+				args = argResult.([]ir.Value)
+			} else {
+				args = []ir.Value{}
+			}
 		}
 		
 		// Check if this is a method call (we have a pending self parameter)
@@ -348,10 +353,20 @@ func (v *IRVisitor) VisitIntrinsicExpression(ctx *parser.IntrinsicExpressionCont
 		return v.ctx.Builder.CreateBitCast(value, targetType, "")
 	}
 	
-	// Get arguments for function-style intrinsics
+	// Get arguments for function-style intrinsics with nil safety
 	var args []ir.Value
 	for _, expr := range ctx.AllExpression() {
-		args = append(args, v.Visit(expr).(ir.Value))
+		argVal := v.Visit(expr)
+		if argVal == nil {
+			v.ctx.Diagnostics.Error("failed to evaluate intrinsic argument expression")
+			continue
+		}
+		val, ok := argVal.(ir.Value)
+		if !ok {
+			v.ctx.Diagnostics.Error("intrinsic argument is not a value")
+			continue
+		}
+		args = append(args, val)
 	}
 	
 	// Handle memory intrinsics (memset, memcpy, memmove)
@@ -382,17 +397,29 @@ func (v *IRVisitor) VisitIntrinsicExpression(ctx *parser.IntrinsicExpressionCont
 	
 	// Handle va_arg intrinsics (variadic argument handling)
 	if ctx.VA_START() != nil {
-		return v.ctx.Builder.CreateCallByName("va_start", types.Void, args, "")
+		if len(args) < 1 {
+			v.ctx.Diagnostics.Error("va_start requires at least one argument")
+			return v.ctx.Builder.ConstInt(types.I64, 0)
+		}
+		return v.ctx.Builder.CreateCallByName("llvm.va_start", types.Void, args, "")
 	}
 	
 	if ctx.VA_ARG() != nil {
+		if len(args) < 1 {
+			v.ctx.Diagnostics.Error("va_arg requires at least one argument")
+			return v.ctx.Builder.ConstInt(types.I64, 0)
+		}
 		// va_arg needs type parameter
 		targetType := v.resolveType(ctx.Type_())
-		return v.ctx.Builder.CreateCallByName("va_arg", targetType, args, "")
+		return v.ctx.Builder.CreateCallByName("llvm.va_arg", targetType, args, "")
 	}
 	
 	if ctx.VA_END() != nil {
-		return v.ctx.Builder.CreateCallByName("va_end", types.Void, args, "")
+		if len(args) < 1 {
+			v.ctx.Diagnostics.Error("va_end requires at least one argument")
+			return v.ctx.Builder.ConstInt(types.I64, 0)
+		}
+		return v.ctx.Builder.CreateCallByName("llvm.va_end", types.Void, args, "")
 	}
 	
 	// Handle raise (abort with message)
@@ -698,24 +725,23 @@ func (v *IRVisitor) VisitSyscallExpression(ctx *parser.SyscallExpressionContext)
 }
 
 func (v *IRVisitor) VisitArgumentList(ctx *parser.ArgumentListContext) interface{} {
-    args := make([]ir.Value, 0)
-    
-    for _, expr := range ctx.AllExpression() {
-        arg := v.Visit(expr)
-        if arg == nil {
-            v.ctx.Diagnostics.Error("failed to evaluate argument expression")
-            continue
-        }
-        argVal, ok := arg.(ir.Value)
-        if !ok {
-            v.ctx.Diagnostics.Error("argument expression did not produce a value")
-            continue
-        }
-        args = append(args, argVal)
-    }
-    
-    // Always return a slice, even if empty
-    return args
+	args := make([]ir.Value, 0)
+	
+	for _, expr := range ctx.AllExpression() {
+		arg := v.Visit(expr)
+		if arg == nil {
+			v.ctx.Diagnostics.Error("failed to evaluate argument expression")
+			continue
+		}
+		argVal, ok := arg.(ir.Value)
+		if !ok {
+			v.ctx.Diagnostics.Error("argument expression did not produce a value")
+			continue
+		}
+		args = append(args, argVal)
+	}
+	
+	return args
 }
 
 func (v *IRVisitor) VisitLeftHandSide(ctx *parser.LeftHandSideContext) interface{} {
